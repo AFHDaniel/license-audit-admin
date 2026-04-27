@@ -1,0 +1,5 @@
+{
+  "name": "License Audit Admin",
+  "description": "Software licensing and renewal dashboard backed by a Monday.com board.",
+  "requestFramePermissions": []
+}

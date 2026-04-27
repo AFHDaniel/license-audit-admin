@@ -1,0 +1,39 @@
+{
+  "name": "license-audit-admin",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env --env-file=.env.local server/mondayProxy.mjs & vite",
+    "server": "node --env-file=.env --env-file=.env.local server/mondayProxy.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --import tsx --test auth/*.test.ts utils/*.test.ts server/*.test.ts"
+  },
+  "dependencies": {
+    "@azure/communication-email": "^1.0.0",
+    "@okta/okta-auth-js": "^8.0.0",
+    "@okta/okta-react": "^6.11.0",
+    "@tabler/icons-react": "^3.40.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.38.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-router-dom": "^7.13.1",
+    "recharts": "^3.8.0",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.11",
+    "@tailwindcss/postcss": "^4.2.1",
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
