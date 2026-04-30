@@ -17,6 +17,7 @@ import { fetchLicenses } from './services/licensesApi';
 import { buildGlobalInventoryPreset } from './utils/globalSearchPreset';
 import { buildSuggestionCorpus } from './utils/predictiveSearch';
 import { useScopedLicenses } from './hooks/useScopedLicenses';
+import { usePersonProfile } from './hooks/usePersonProfile';
 import { canAccessLicense, getDepartmentGrant, isAdmin as checkIsAdmin } from './auth/departmentAccess';
 import { useAuthUser } from './components/AuthGate';
 
@@ -60,6 +61,21 @@ const App: React.FC = () => {
   const { user } = useAuthUser();
   const realIsAdmin = checkIsAdmin(getDepartmentGrant(user?.email));
   const { scopedLicenses, grant, allowedDepartments, isAdmin, isLoading: scopeLoading, isViewingAs } = useScopedLicenses(licenses, viewAsEmail);
+
+  const impersonatedProfile = usePersonProfile(isViewingAs ? viewAsEmail : null);
+  const effectiveUser = isViewingAs && impersonatedProfile
+    ? { name: impersonatedProfile.name, email: impersonatedProfile.email, avatarUrl: impersonatedProfile.avatarUrl }
+    : user;
+  const clearImpersonation = () => setViewAsEmail(null);
+
+  useEffect(() => {
+    if (!isViewingAs) return;
+    const onEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clearImpersonation();
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [isViewingAs]);
   const topNavRef = useRef<TopNavHandle | null>(null);
   const toast = useToast();
   const pending30 = useMemo(() => getPendingRenewalsCount(scopedLicenses, 30), [scopedLicenses]);
@@ -283,7 +299,9 @@ const App: React.FC = () => {
         activeView={activeView}
         setView={handleSetView}
         inventoryCount={scopedLicenses.length}
-        onFocusSearch={() => topNavRef.current?.focusSearch()}
+        displayUser={effectiveUser || undefined}
+        isImpersonating={isViewingAs}
+        onClearImpersonation={clearImpersonation}
       />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -300,6 +318,9 @@ const App: React.FC = () => {
             renewalWindow: 'UPCOMING_30',
             contextLabel: 'Pending renewals: next 30 days',
           })}
+          displayUser={effectiveUser || undefined}
+          isImpersonating={isViewingAs}
+          onClearImpersonation={clearImpersonation}
         />
 
         {showSyncBanner && (

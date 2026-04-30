@@ -1,5 +1,5 @@
 {
-  "name": "License Audit Admin",
-  "description": "Software licensing and renewal dashboard backed by a Monday.com board.",
+  "name": "Application Tracker",
+  "description": "Atlanta Fine Homes software application tracker — license inventory, renewals, and department-level access, backed by Monday.com.",
   "requestFramePermissions": []
 }

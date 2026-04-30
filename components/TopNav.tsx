@@ -1,4 +1,4 @@
-import React, { useMemo, useState, forwardRef, useImperativeHandle, useRef } from 'react';
+import React, { useMemo, useState, forwardRef, useImperativeHandle, useRef, useEffect } from 'react';
 import {
   IconSearch,
   IconBell,
@@ -10,9 +10,16 @@ import { getPredictiveSuggestions } from '../utils/predictiveSearch';
 import { USER_GRANTS, getAllowedDepartments } from '../auth/departmentAccess';
 import { useTheme } from '../hooks/useTheme';
 import { useAuthUser } from './AuthGate';
+import { getInitials } from '../utils/initials';
 
 export interface TopNavHandle {
   focusSearch: () => void;
+}
+
+interface DisplayUser {
+  name: string;
+  email: string;
+  avatarUrl?: string;
 }
 
 interface TopNavProps {
@@ -23,6 +30,12 @@ interface TopNavProps {
   onViewAsChange?: (email: string | null) => void;
   notificationCount?: number;
   onNotificationClick?: () => void;
+  /** Identity to render in the avatar tile. Falls back to the authenticated user. */
+  displayUser?: DisplayUser;
+  /** True when an admin is viewing the app as another user. */
+  isImpersonating?: boolean;
+  /** Called when admin clicks the gold-ringed avatar to leave impersonation mode. */
+  onClearImpersonation?: () => void;
 }
 
 const TopNav = forwardRef<TopNavHandle, TopNavProps>(({
@@ -33,19 +46,39 @@ const TopNav = forwardRef<TopNavHandle, TopNavProps>(({
   onViewAsChange,
   notificationCount = 0,
   onNotificationClick,
+  displayUser,
+  isImpersonating = false,
+  onClearImpersonation,
 }, ref) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const { theme, toggleTheme } = useTheme();
-  const { user } = useAuthUser();
+  const { user: authUser } = useAuthUser();
+  const user = displayUser || authUser;
 
   useImperativeHandle(ref, () => ({
     focusSearch: () => {
       searchInputRef.current?.focus();
     },
   }), []);
+
+  // Cmd+K (mac) / Ctrl+K (everywhere else) focuses the search input.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const isCmdK = (event.metaKey || event.ctrlKey) && (event.key === 'k' || event.key === 'K');
+      if (!isCmdK) return;
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent || '');
+  const shortcutLabel = isMac ? '⌘K' : 'Ctrl+K';
 
   const suggestions = useMemo(
     () => getPredictiveSuggestions(searchQuery, suggestionCorpus, 6),
@@ -74,11 +107,7 @@ const TopNav = forwardRef<TopNavHandle, TopNavProps>(({
     });
   }, []);
 
-  const userInitials = (user?.name || '')
-    .split(' ')
-    .map((w) => w[0]?.toUpperCase() || '')
-    .join('')
-    .slice(0, 2) || 'U';
+  const userInitials = getInitials(user?.name);
 
   return (
     <header className="flex items-center gap-3 px-5 h-11 border-b border-border bg-background shrink-0 sticky top-0 z-10">
@@ -104,7 +133,7 @@ const TopNav = forwardRef<TopNavHandle, TopNavProps>(({
               window.setTimeout(() => setShowSuggestions(false), 120);
             }}
           />
-          <kbd className="text-[10px] text-muted-foreground bg-background px-1.5 py-0.5 rounded border border-border shrink-0">K</kbd>
+          <kbd className="text-[10px] text-muted-foreground bg-background px-1.5 py-0.5 rounded border border-border shrink-0 font-sans">{shortcutLabel}</kbd>
         </div>
         {showSuggestions && suggestions.length > 0 && (
           <div className="absolute left-0 right-0 mt-1.5 max-h-64 overflow-y-auto rounded-md border border-border bg-popover shadow-lg z-20">
@@ -130,10 +159,11 @@ const TopNav = forwardRef<TopNavHandle, TopNavProps>(({
             <select
               value={viewAsEmail || ''}
               onChange={(event) => onViewAsChange?.(event.target.value || null)}
-              className={`h-7 rounded-md border px-2 pr-7 text-[11px] font-medium transition-colors ${
+              aria-label="View as user"
+              className={`h-8 leading-none rounded-md border pl-2 pr-7 py-0 text-[12px] font-medium transition-colors max-w-[220px] truncate ${
                 viewAsEmail
                   ? 'border-accent/60 bg-accent/10 text-accent'
-                  : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                  : 'border-border bg-background text-foreground hover:bg-secondary/60'
               }`}
             >
               <option value="">My view</option>
@@ -177,13 +207,49 @@ const TopNav = forwardRef<TopNavHandle, TopNavProps>(({
           )}
         </button>
 
-        <div
-          className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[11px] font-semibold shrink-0 ml-0.5"
-          aria-label={user?.name ? `Signed in as ${user.name}` : 'Current user'}
-          title={user?.name || ''}
+        {/* Avatar (image with initials fallback). When impersonating, click to exit. */}
+        <button
+          type="button"
+          onClick={isImpersonating ? onClearImpersonation : undefined}
+          aria-label={
+            isImpersonating
+              ? `Viewing as ${user?.name || 'user'} — click to exit`
+              : user?.name ? `Signed in as ${user.name}` : 'Current user'
+          }
+          title={
+            isImpersonating
+              ? `Viewing as ${user?.name || 'user'} — click to exit`
+              : user?.name || ''
+          }
+          className={`relative shrink-0 ml-0.5 rounded-full ${isImpersonating ? 'cursor-pointer' : 'cursor-default'}`}
         >
-          {userInitials}
-        </div>
+          {user?.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt=""
+              className={`w-7 h-7 rounded-full object-cover ${
+                isImpersonating ? 'ring-2 ring-gold' : 'ring-1 ring-border'
+              }`}
+              referrerPolicy="no-referrer"
+              onError={(event) => {
+                event.currentTarget.style.display = 'none';
+                const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
+                if (fallback) fallback.style.display = 'flex';
+              }}
+            />
+          ) : null}
+          <div
+            aria-hidden="true"
+            style={{ display: user?.avatarUrl ? 'none' : 'flex' }}
+            className={`w-7 h-7 rounded-full items-center justify-center text-[11px] font-semibold ${
+              isImpersonating
+                ? 'bg-gold/20 ring-2 ring-gold text-gold'
+                : 'bg-primary text-primary-foreground'
+            }`}
+          >
+            {userInitials}
+          </div>
+        </button>
       </div>
     </header>
   );

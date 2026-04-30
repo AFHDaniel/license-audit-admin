@@ -16,10 +16,14 @@ const STATIC_MIME = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
+  '.otf': 'font/otf',
+  '.ttf': 'font/ttf',
+  '.webp': 'image/webp',
 };
 
 async function serveStaticFile(res, pathname) {
@@ -1304,6 +1308,133 @@ async function sendRenewalReminderEmail({ to, license, daysUntilRenewal }) {
   return poller.pollUntilDone();
 }
 
+// ---------------------------------------------------------------------------
+// Microsoft Graph profile-photo proxy (Azure AD)
+//
+// Uses the client-credentials flow: an Azure AD app registration with
+// `User.Read.All` (Application permission, admin-consented) lets us fetch
+// any AFH user's profile photo by email. Caches the access token and the
+// photo buffers in-process to keep latency down.
+// ---------------------------------------------------------------------------
+const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || '';
+const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || '';
+const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET || '';
+const AZURE_PHOTO_ALLOWED_DOMAIN = (process.env.AZURE_PHOTO_ALLOWED_DOMAIN || 'atlantafinehomes.com').toLowerCase();
+
+const azureGraph = {
+  token: '',
+  tokenExpiresAtMs: 0,
+};
+const azurePhotoCache = new Map(); // email -> { buffer, contentType, expiresAtMs } | { miss: true, expiresAtMs }
+const PHOTO_TTL_MS = 60 * 60 * 1000; // 1 hour
+const PHOTO_NEGATIVE_TTL_MS = 10 * 60 * 1000; // 10 minutes for misses
+
+async function getGraphAccessToken() {
+  if (!AZURE_TENANT_ID || !AZURE_CLIENT_ID || !AZURE_CLIENT_SECRET) return '';
+  if (azureGraph.token && Date.now() < azureGraph.tokenExpiresAtMs - 60_000) {
+    return azureGraph.token;
+  }
+
+  const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`;
+  const body = new URLSearchParams({
+    client_id: AZURE_CLIENT_ID,
+    client_secret: AZURE_CLIENT_SECRET,
+    grant_type: 'client_credentials',
+    scope: 'https://graph.microsoft.com/.default',
+  });
+
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  if (!res.ok) {
+    console.error('[graph] token fetch failed', res.status, await res.text().catch(() => ''));
+    return '';
+  }
+  const json = await res.json();
+  azureGraph.token = json.access_token || '';
+  azureGraph.tokenExpiresAtMs = Date.now() + Number(json.expires_in || 3600) * 1000;
+  return azureGraph.token;
+}
+
+const azureProfileCache = new Map(); // email -> { profile, expiresAtMs }
+const PROFILE_TTL_MS = 60 * 60 * 1000;
+const PROFILE_NEGATIVE_TTL_MS = 10 * 60 * 1000;
+
+async function fetchAzureProfile(email) {
+  if (!email || !email.includes('@')) return null;
+  const normalized = email.trim().toLowerCase();
+  if (AZURE_PHOTO_ALLOWED_DOMAIN && !normalized.endsWith(`@${AZURE_PHOTO_ALLOWED_DOMAIN}`)) {
+    return null;
+  }
+
+  const cached = azureProfileCache.get(normalized);
+  if (cached && Date.now() < cached.expiresAtMs) {
+    return cached.profile;
+  }
+
+  const token = await getGraphAccessToken();
+  if (!token) return null;
+
+  const profileUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(normalized)}?$select=displayName,mail,userPrincipalName,jobTitle,department`;
+  try {
+    const res = await fetch(profileUrl, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      azureProfileCache.set(normalized, { profile: null, expiresAtMs: Date.now() + PROFILE_NEGATIVE_TTL_MS });
+      return null;
+    }
+    const json = await res.json();
+    const profile = {
+      email: (json.mail || json.userPrincipalName || normalized).toLowerCase(),
+      displayName: json.displayName || normalized,
+      jobTitle: json.jobTitle || null,
+      department: json.department || null,
+    };
+    azureProfileCache.set(normalized, { profile, expiresAtMs: Date.now() + PROFILE_TTL_MS });
+    return profile;
+  } catch (error) {
+    console.error('[graph] profile fetch failed', error?.message || error);
+    return null;
+  }
+}
+
+async function fetchAzureProfilePhoto(email) {
+  if (!email || !email.includes('@')) return null;
+  const normalized = email.trim().toLowerCase();
+  if (AZURE_PHOTO_ALLOWED_DOMAIN && !normalized.endsWith(`@${AZURE_PHOTO_ALLOWED_DOMAIN}`)) {
+    return null;
+  }
+
+  const cached = azurePhotoCache.get(normalized);
+  if (cached && Date.now() < cached.expiresAtMs) {
+    return cached.miss ? null : cached;
+  }
+
+  const token = await getGraphAccessToken();
+  if (!token) return null;
+
+  const photoUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(normalized)}/photo/$value`;
+  try {
+    const res = await fetch(photoUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      azurePhotoCache.set(normalized, { miss: true, expiresAtMs: Date.now() + PHOTO_NEGATIVE_TTL_MS });
+      return null;
+    }
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const entry = { buffer, contentType, expiresAtMs: Date.now() + PHOTO_TTL_MS };
+    azurePhotoCache.set(normalized, entry);
+    return entry;
+  } catch (error) {
+    console.error('[graph] photo fetch failed', error?.message || error);
+    azurePhotoCache.set(normalized, { miss: true, expiresAtMs: Date.now() + PHOTO_NEGATIVE_TTL_MS });
+    return null;
+  }
+}
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -1317,6 +1448,32 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/api/health') {
       sendJson(res, 200, { ok: true, service: 'monday-proxy' });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/profile/photo') {
+      const email = (url.searchParams.get('email') || '').trim();
+      const photo = await fetchAzureProfilePhoto(email);
+      if (!photo) {
+        res.statusCode = 404;
+        res.end();
+        return;
+      }
+      res.setHeader('Content-Type', photo.contentType);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.statusCode = 200;
+      res.end(photo.buffer);
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/profile/lookup') {
+      const email = (url.searchParams.get('email') || '').trim();
+      const profile = await fetchAzureProfile(email);
+      if (!profile) {
+        sendJson(res, 404, { error: 'profile not found' });
+        return;
+      }
+      sendJson(res, 200, profile);
       return;
     }
 

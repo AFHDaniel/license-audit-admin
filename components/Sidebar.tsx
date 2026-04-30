@@ -4,20 +4,30 @@ import {
   IconListDetails,
   IconChartBar,
   IconDownload,
-  IconSearch,
-  IconChevronDown,
   IconDotsVertical,
   IconLogout,
 } from '@tabler/icons-react';
 import { View } from '../types';
 import { useAuthUser } from './AuthGate';
 import { getDepartmentGrant, isAdmin as checkIsAdmin, getAllowedDepartments } from '../auth/departmentAccess';
+import { getInitials } from '../utils/initials';
+
+interface DisplayUser {
+  name: string;
+  email: string;
+  avatarUrl?: string;
+}
 
 interface SidebarProps {
   activeView: View;
   setView: (view: View) => void;
   inventoryCount?: number;
-  onFocusSearch?: () => void;
+  /** Identity to render in the user button. Falls back to the authenticated user. */
+  displayUser?: DisplayUser;
+  /** True when an admin is viewing the app as another user. */
+  isImpersonating?: boolean;
+  /** Called when the admin wants to leave impersonation mode. */
+  onClearImpersonation?: () => void;
 }
 
 type TablerIcon = React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
@@ -28,8 +38,16 @@ interface NavItem {
   Icon: TablerIcon;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeView, setView, inventoryCount, onFocusSearch }) => {
-  const { user, signOut } = useAuthUser();
+const Sidebar: React.FC<SidebarProps> = ({
+  activeView,
+  setView,
+  inventoryCount,
+  displayUser,
+  isImpersonating = false,
+  onClearImpersonation,
+}) => {
+  const { user: authUser, signOut } = useAuthUser();
+  const user = displayUser || authUser;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -67,47 +85,28 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, setView, inventoryCount, 
     { id: View.EXPORT, label: 'Export', Icon: IconDownload },
   ];
 
-  const displayName = user?.name?.split(' ')[0] || 'User';
-  const initials = (user?.name || '')
-    .split(' ')
-    .map((w) => w[0]?.toUpperCase() || '')
-    .join('')
-    .slice(0, 2) || 'U';
+  const displayName = user?.name?.split(/\s+/)[0] || 'User';
+  const initials = getInitials(user?.name);
   const roleLabel = admin ? 'Admin' : 'Manager';
   const roleDetail = admin ? 'All departments' : departments.join(', ') || 'No access';
 
   return (
-    <aside className="w-56 flex flex-col border-r border-border bg-sidebar shrink-0 h-screen">
-      {/* Logo */}
+    <aside className="w-60 flex flex-col bg-sidebar text-sidebar-foreground shrink-0 h-screen border-r border-sidebar-border">
+      {/* Logo / brand */}
       <button
         type="button"
         onClick={() => setView(View.DASHBOARD)}
-        aria-label="Go to dashboard"
-        className="flex items-center gap-2.5 px-5 py-5 w-full hover:bg-secondary/50 transition-colors text-left"
+        aria-label="Application Tracker — go to dashboard"
+        className="flex items-center gap-2 px-5 pt-5 pb-4 w-full hover:bg-sidebar-accent/40 transition-colors text-left"
       >
-        <div
-          aria-hidden="true"
-          className="flex items-center justify-center w-7 h-7 rounded-lg bg-primary text-primary-foreground text-xs font-bold shrink-0"
-        >
-          A
-        </div>
-        <span className="text-sm font-semibold tracking-tight text-foreground">AuditAdmin</span>
-        <IconChevronDown className="ml-auto w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
+        <img
+          src="/brand/afh-horizontal-white.svg"
+          alt="Atlanta Fine Homes Application Tracker"
+          className="h-8 w-auto"
+        />
       </button>
 
-      {/* Search pill (Cmd+K hint) */}
-      <div className="px-3 mb-1">
-        <button
-          type="button"
-          onClick={onFocusSearch}
-          aria-label="Focus search"
-          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-secondary text-muted-foreground text-[11px] hover:bg-secondary/70 transition-colors"
-        >
-          <IconSearch className="w-3.5 h-3.5" aria-hidden="true" />
-          <span>Search...</span>
-          <kbd className="ml-auto text-[10px] bg-background px-1.5 py-0.5 rounded border border-border font-sans" aria-hidden="true">K</kbd>
-        </button>
-      </div>
+      <div className="mx-3 mb-2 h-px bg-sidebar-border/70" aria-hidden="true" />
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-2 overflow-y-auto">
@@ -121,16 +120,22 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, setView, inventoryCount, 
                 key={id}
                 type="button"
                 onClick={() => setView(id)}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] transition-colors ${
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] transition-colors relative ${
                   active
-                    ? 'bg-secondary text-foreground font-medium'
-                    : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+                    ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
+                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground'
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                {active && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-sidebar-primary"
+                  />
+                )}
+                <Icon className={`w-4 h-4 ${active ? 'text-sidebar-primary' : ''}`} />
                 {label}
                 {showBadge && (
-                  <span className="ml-auto text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded-full font-medium tabular-nums">
+                  <span className="ml-auto text-[10px] bg-sidebar-primary/20 text-sidebar-primary px-1.5 py-0.5 rounded-full font-medium tabular-nums">
                     {inventoryCount}
                   </span>
                 )}
@@ -141,7 +146,29 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, setView, inventoryCount, 
       </nav>
 
       {/* User */}
-      <div className="px-3 py-3 border-t border-border relative" ref={menuContainerRef}>
+      <div className="px-3 py-3 border-t border-sidebar-border relative" ref={menuContainerRef}>
+        {isImpersonating && (
+          <div className="mb-2 px-2.5 py-1.5 rounded-md bg-gold/15 border border-gold/40">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gold">
+                Viewing as
+              </span>
+              {onClearImpersonation && (
+                <button
+                  type="button"
+                  onClick={onClearImpersonation}
+                  className="text-[9px] font-semibold text-gold/90 hover:text-gold underline-offset-2 hover:underline"
+                  aria-label="Exit impersonation"
+                >
+                  Exit (Esc)
+                </button>
+              )}
+            </div>
+            <div className="text-[10px] text-sidebar-foreground/70 mt-0.5 truncate">
+              Logged in as {authUser?.email || authUser?.name || 'admin'}
+            </div>
+          </div>
+        )}
         {menuOpen && (
           <div
             role="menu"
@@ -152,6 +179,19 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, setView, inventoryCount, 
               <p className="text-[10px] text-muted-foreground truncate">{user?.email || ''}</p>
               <p className="text-[10px] text-muted-foreground truncate mt-0.5">{roleDetail}</p>
             </div>
+            {isImpersonating && onClearImpersonation && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onClearImpersonation();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-gold hover:bg-secondary transition-colors border-b border-border"
+              >
+                Exit impersonation
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"
@@ -171,24 +211,51 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, setView, inventoryCount, 
           onClick={() => setMenuOpen((v) => !v)}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          aria-label={`Account menu for ${user?.name || 'user'}`}
-          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-secondary/60 cursor-pointer transition-colors"
+          aria-label={isImpersonating ? `Viewing as ${user?.name}. Click for menu.` : `Account menu for ${user?.name || 'user'}`}
+          className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors ${
+            isImpersonating
+              ? 'bg-gold/10 hover:bg-gold/15 ring-1 ring-gold/30'
+              : 'hover:bg-sidebar-accent/60'
+          }`}
         >
-          <div aria-hidden="true" className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center text-[11px] font-semibold text-accent shrink-0">
+          {user?.avatarUrl ? (
+            <img
+              src={user.avatarUrl}
+              alt={user?.name || 'User avatar'}
+              className={`w-7 h-7 rounded-full object-cover shrink-0 ${
+                isImpersonating ? 'ring-2 ring-gold' : 'ring-1 ring-sidebar-primary/40'
+              }`}
+              referrerPolicy="no-referrer"
+              onError={(event) => {
+                event.currentTarget.style.display = 'none';
+                const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
+                if (fallback) fallback.style.display = 'flex';
+              }}
+            />
+          ) : null}
+          <div
+            aria-hidden="true"
+            style={{ display: user?.avatarUrl ? 'none' : 'flex' }}
+            className={`w-7 h-7 rounded-full items-center justify-center text-[11px] font-semibold shrink-0 ${
+              isImpersonating
+                ? 'bg-gold/20 ring-2 ring-gold text-gold'
+                : 'bg-sidebar-primary/15 ring-1 ring-sidebar-primary/40 text-sidebar-primary'
+            }`}
+          >
             {initials}
           </div>
           <div className="flex-1 min-w-0 text-left">
             <div className="flex items-center gap-1.5">
-              <div className="text-[12px] font-medium text-foreground truncate">{displayName}</div>
+              <div className="text-[12px] font-medium text-sidebar-foreground truncate">{displayName}</div>
               <span className={`text-[9px] font-semibold uppercase tracking-wider px-1 py-[1px] rounded ${
-                admin ? 'bg-accent/15 text-accent' : 'bg-secondary text-muted-foreground'
+                admin ? 'bg-sidebar-primary/20 text-sidebar-primary' : 'bg-sidebar-accent text-sidebar-foreground/70'
               }`}>
                 {roleLabel}
               </span>
             </div>
-            <div className="text-[10px] text-muted-foreground truncate">{admin ? 'All departments' : departments.join(', ') || '--'}</div>
+            <div className="text-[10px] text-sidebar-foreground/60 truncate">{admin ? 'All departments' : departments.join(', ') || '--'}</div>
           </div>
-          <IconDotsVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
+          <IconDotsVertical className="w-3.5 h-3.5 text-sidebar-foreground/60 shrink-0" aria-hidden="true" />
         </button>
       </div>
     </aside>

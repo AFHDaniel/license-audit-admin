@@ -1,12 +1,47 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/forms";
 
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800;900&display=swap');
-
 @source "./**/*.{ts,tsx}";
 @source "./index.html";
 
 @custom-variant dark (&:is(.dark *));
+
+/* Atlanta Fine Homes brand fonts (local) */
+@font-face {
+  font-family: 'Benton Sans';
+  src: url('/fonts/BentonSans-Book.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Benton Sans';
+  src: url('/fonts/BentonSans-Medium.otf') format('opentype');
+  font-weight: 500 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Benton Sans';
+  src: url('/fonts/BentonSans-Black.otf') format('opentype');
+  font-weight: 700 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Mercury Display';
+  src: url('/fonts/MercuryDisplay-Roman.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Mercury Display';
+  src: url('/fonts/MercuryDisplay-Semibold.ttf') format('truetype');
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
 
 @theme inline {
   --color-background: hsl(var(--background));
@@ -43,69 +78,95 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
-  --font-display: 'Instrument Serif', serif;
-  --font-body: 'Inter', sans-serif;
-  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Mercury Display', 'Freight Big Pro', Georgia, serif;
+  --font-body: 'Benton Sans', Inter, system-ui, sans-serif;
+  --font-sans: 'Benton Sans', Inter, system-ui, sans-serif;
 }
 
+/*
+  Atlanta Fine Homes brand palette
+  - Navy   #002349 -> hsl(213 100% 14%)
+  - Gold   #B89C47 -> hsl(43 47% 50%)
+  - Cream  #F8F7F4 -> hsl(40 17% 97%)
+*/
 :root {
   --radius: 0.5rem;
-  --background: 0 0% 100%;
-  --foreground: 210 14% 17%;
+
+  --background: 40 17% 97%;          /* AFH cream */
+  --foreground: 213 100% 14%;        /* AFH navy */
+
   --card: 0 0% 100%;
-  --card-foreground: 210 14% 17%;
+  --card-foreground: 213 100% 14%;
+
   --popover: 0 0% 100%;
-  --popover-foreground: 210 14% 17%;
-  --primary: 210 14% 17%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 96%;
-  --secondary-foreground: 0 0% 9%;
-  --muted: 0 0% 96%;
-  --muted-foreground: 184 5% 55%;
-  --accent: 239 84% 67%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;
-  --border: 0 0% 90%;
-  --input: 0 0% 90%;
-  --ring: 239 84% 67%;
-  --sidebar: 0 0% 99%;
-  --sidebar-foreground: 210 14% 17%;
-  --sidebar-primary: 210 14% 17%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 0 0% 96%;
-  --sidebar-accent-foreground: 210 14% 17%;
-  --sidebar-border: 0 0% 92%;
-  --sidebar-ring: 239 84% 67%;
-  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.05);
+  --popover-foreground: 213 100% 14%;
+
+  --primary: 213 100% 14%;           /* AFH navy */
+  --primary-foreground: 40 17% 97%;
+
+  --secondary: 40 14% 93%;
+  --secondary-foreground: 213 100% 14%;
+
+  --muted: 40 14% 93%;
+  --muted-foreground: 213 18% 38%;
+
+  --accent: 43 47% 50%;              /* AFH gold */
+  --accent-foreground: 213 100% 14%;
+
+  --destructive: 0 70% 45%;
+  --border: 213 20% 88%;
+  --input: 213 20% 88%;
+  --ring: 43 47% 50%;                /* AFH gold focus ring */
+
+  /* Sidebar = AFH navy with cream text and gold accents */
+  --sidebar: 213 100% 14%;
+  --sidebar-foreground: 40 17% 92%;
+  --sidebar-primary: 43 47% 50%;
+  --sidebar-primary-foreground: 213 100% 14%;
+  --sidebar-accent: 213 80% 20%;
+  --sidebar-accent-foreground: 40 17% 97%;
+  --sidebar-border: 213 60% 22%;
+  --sidebar-ring: 43 47% 50%;
+
+  --shadow-card: 0 1px 2px 0 rgb(0 35 73 / 0.05), 0 1px 3px 0 rgb(0 35 73 / 0.06);
 }
 
 .dark {
-  --background: 220 16% 8%;
-  --foreground: 210 20% 92%;
-  --card: 220 14% 11%;
-  --card-foreground: 210 20% 92%;
-  --popover: 220 14% 11%;
-  --popover-foreground: 210 20% 92%;
-  --primary: 210 20% 92%;
-  --primary-foreground: 220 16% 8%;
-  --secondary: 220 12% 15%;
-  --secondary-foreground: 210 20% 85%;
-  --muted: 220 12% 15%;
-  --muted-foreground: 215 10% 50%;
-  --accent: 239 84% 67%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;
-  --border: 220 12% 18%;
-  --input: 220 12% 18%;
-  --ring: 239 84% 67%;
-  --sidebar: 220 16% 6%;
-  --sidebar-foreground: 210 20% 85%;
-  --sidebar-primary: 210 20% 92%;
-  --sidebar-primary-foreground: 220 16% 8%;
-  --sidebar-accent: 220 12% 12%;
-  --sidebar-accent-foreground: 210 20% 85%;
-  --sidebar-border: 220 12% 14%;
-  --sidebar-ring: 239 84% 67%;
+  --background: 213 60% 6%;
+  --foreground: 40 17% 92%;
+
+  --card: 213 50% 9%;
+  --card-foreground: 40 17% 92%;
+
+  --popover: 213 50% 9%;
+  --popover-foreground: 40 17% 92%;
+
+  --primary: 43 47% 55%;             /* gold pops as primary in dark */
+  --primary-foreground: 213 100% 10%;
+
+  --secondary: 213 40% 14%;
+  --secondary-foreground: 40 17% 88%;
+
+  --muted: 213 40% 14%;
+  --muted-foreground: 213 15% 60%;
+
+  --accent: 43 47% 55%;
+  --accent-foreground: 213 100% 10%;
+
+  --destructive: 0 70% 55%;
+  --border: 213 35% 18%;
+  --input: 213 35% 18%;
+  --ring: 43 47% 55%;
+
+  --sidebar: 213 70% 5%;
+  --sidebar-foreground: 40 17% 88%;
+  --sidebar-primary: 43 47% 55%;
+  --sidebar-primary-foreground: 213 100% 10%;
+  --sidebar-accent: 213 50% 12%;
+  --sidebar-accent-foreground: 40 17% 92%;
+  --sidebar-border: 213 40% 14%;
+  --sidebar-ring: 43 47% 55%;
+
   --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 1px 3px 0 rgb(0 0 0 / 0.3);
 }
 
@@ -116,9 +177,13 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Benton Sans', Inter, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Mercury Display', 'Freight Big Pro', Georgia, serif;
+    letter-spacing: -0.01em;
   }
   input, select, textarea, button {
     outline: none !important;

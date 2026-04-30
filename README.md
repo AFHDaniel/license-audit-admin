@@ -1,6 +1,6 @@
-# License Audit Admin
+# Application Tracker
 
-Admin dashboard for tracking SaaS licenses, spend, and renewals across departments. Records live on a few Monday.com boards; this app reads them, normalizes the shape, and gives stakeholders a place to review upcoming renewals, drill into department spend, and edit a record without opening Monday.
+Atlanta Fine Homes' internal admin dashboard for tracking SaaS applications, license spend, and renewals across departments. Records live on a few Monday.com boards; this app reads them, normalizes the shape, and gives stakeholders a place to review upcoming renewals, drill into department spend, and edit a record without opening Monday.
 
 ## Stack
 
