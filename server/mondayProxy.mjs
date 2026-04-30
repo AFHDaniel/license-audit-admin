@@ -1466,6 +1466,73 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/email/test') {
+      const expected = process.env.TEST_EMAIL_SECRET || '';
+      if (!expected) {
+        sendJson(res, 503, { error: 'TEST_EMAIL_SECRET is not configured on the server.' });
+        return;
+      }
+      const auth = req.headers.authorization || '';
+      const presented = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      if (presented !== expected) {
+        sendJson(res, 401, { error: 'Invalid test email token.' });
+        return;
+      }
+
+      const body = (await readJson(req)) || {};
+      const to = typeof body.to === 'string' && body.to.includes('@')
+        ? body.to.trim()
+        : 'daniel@atlantafinehomes.com';
+      const subject = typeof body.subject === 'string' && body.subject.trim()
+        ? body.subject.trim()
+        : 'Application Tracker — email pipeline test';
+      const messageBody = typeof body.message === 'string' && body.message.trim()
+        ? body.message.trim()
+        : 'This is a test email from the Application Tracker server, confirming that ACS delivery is working.';
+
+      const client = getEmailClient();
+      if (!client) {
+        sendJson(res, 503, { error: 'ACS_CONNECTION_STRING is not set on the server.' });
+        return;
+      }
+      const sender = process.env.ACS_SENDER_ADDRESS;
+      if (!sender) {
+        sendJson(res, 503, { error: 'ACS_SENDER_ADDRESS is not set on the server.' });
+        return;
+      }
+
+      try {
+        const html = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 540px; color: #002349;">
+            <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #002349;">${subject}</h2>
+            <p style="margin: 0 0 12px 0;">${messageBody}</p>
+            <p style="margin: 16px 0 0 0; font-size: 12px; color: #6b7280;">
+              Sent from Application Tracker (${process.env.NODE_ENV || 'development'}) at ${new Date().toISOString()}
+            </p>
+          </div>
+        `;
+        const poller = await client.beginSend({
+          senderAddress: sender,
+          content: { subject, plainText: messageBody, html },
+          recipients: { to: [{ address: to }] },
+        });
+        const result = await poller.pollUntilDone();
+        sendJson(res, 200, {
+          ok: true,
+          to,
+          subject,
+          sender,
+          messageId: result?.id || null,
+          status: result?.status || null,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Email send failed';
+        console.error('[email/test] send failed:', message);
+        sendJson(res, 502, { error: message });
+      }
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/profile/lookup') {
       const email = (url.searchParams.get('email') || '').trim();
       const profile = await fetchAzureProfile(email);
