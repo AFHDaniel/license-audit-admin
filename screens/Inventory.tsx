@@ -459,7 +459,7 @@ const Inventory: React.FC<InventoryProps> = ({
                           key={group.getKey(option)}
                           type="button"
                           onClick={() => toggleSelection(value, group.setter)}
-                          className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                          className={`inline-flex items-center h-7 rounded-full border px-3 text-[11px] font-medium leading-none transition-colors ${
                             selected
                               ? 'border-primary bg-primary text-primary-foreground'
                               : 'border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground/40'
@@ -491,7 +491,7 @@ const Inventory: React.FC<InventoryProps> = ({
                           type="button"
                           onClick={() => toggleSelection(option.email, setSelectedCoOwnerEmails)}
                           disabled={!option.email}
-                          className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                          className={`inline-flex items-center h-7 rounded-full border px-3 text-[11px] font-medium leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                             selected
                               ? 'border-primary bg-primary text-primary-foreground'
                               : 'border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground/40'
