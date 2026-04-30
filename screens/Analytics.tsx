@@ -174,7 +174,7 @@ const Analytics: React.FC<AnalyticsProps> = ({
   const departmentRows = useMemo(() => {
     const grouped = new Map<
       string,
-      { total: number; monthly: number; annual: number; count: number; pending30: number; overdue: number; noDate: number; boards: Set<string> }
+      { total: number; monthly: number; annual: number; count: number; pending30: number; overdue: number; noDate: number }
     >();
 
     for (const license of licenses) {
@@ -188,13 +188,11 @@ const Analytics: React.FC<AnalyticsProps> = ({
         pending30: 0,
         overdue: 0,
         noDate: 0,
-        boards: new Set<string>(),
       };
       cur.total += Number.isFinite(license.amount) ? license.amount : 0;
       cur.monthly += getMonthlyCost(license);
       cur.annual += getAnnualCost(license);
       cur.count += 1;
-      if (license.sourceBoardName) cur.boards.add(license.sourceBoardName);
       if (days == null) cur.noDate += 1;
       else if (days < 0) cur.overdue += 1;
       else if (days <= 30) cur.pending30 += 1;
@@ -212,7 +210,6 @@ const Analytics: React.FC<AnalyticsProps> = ({
         pending30: s.pending30,
         overdue: s.overdue,
         noDate: s.noDate,
-        boards: s.boards.size,
       }))
       .sort((a, b) => b.annual - a.annual);
   }, [licenses]);
@@ -470,7 +467,7 @@ const Analytics: React.FC<AnalyticsProps> = ({
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border bg-secondary/30">
-                      {['Department', 'Apps', 'Boards', 'Monthly', 'Annual', '30d', 'Overdue', 'No date'].map((h) => (
+                      {['Department', 'Apps', 'Monthly', 'Annual', '30d', 'Overdue', 'No date'].map((h) => (
                         <th
                           key={h}
                           className="px-5 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider"
@@ -499,7 +496,6 @@ const Analytics: React.FC<AnalyticsProps> = ({
                           </div>
                         </td>
                         <td className="px-5 py-2.5 text-[12px] text-muted-foreground tabular-nums">{row.count}</td>
-                        <td className="px-5 py-2.5 text-[12px] text-muted-foreground tabular-nums">{row.boards}</td>
                         <td className="px-5 py-2.5 text-[12px] text-foreground tabular-nums">
                           {formatCurrency(row.monthly)}
                         </td>
