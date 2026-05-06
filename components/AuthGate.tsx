@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useOktaAuth } from '@okta/okta-react';
 import { IconLoader2, IconLock } from '@tabler/icons-react';
+import {
+  AuthClaims,
+  AuthUser,
+  getAuthUserPictureFromClaims,
+  resolveAuthUserFromClaims,
+} from '../auth/authUser';
 
 interface AuthGateProps {
   children: React.ReactNode;
-}
-
-interface AuthUser {
-  name: string;
-  email: string;
-  avatarUrl?: string;
 }
 
 const DEV_AUTH_BYPASS =
@@ -105,29 +105,51 @@ export function useAuthUser() {
         console.warn('[dev bypass] signOut() ignored — auth is disabled in this build.');
       },
       isAuthenticated: true,
+      isLoading: false,
     };
   }
 
   const { oktaAuth, authState } = useOktaAuth();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [isUserLoaded, setIsUserLoaded] = useState(false);
 
   useEffect(() => {
-    if (!authState?.isAuthenticated) return;
+    if (!authState?.isAuthenticated) {
+      setUser(null);
+      setIsUserLoaded(false);
+      return;
+    }
 
     let cancelled = false;
+    setIsUserLoaded(false);
+
     (async () => {
-      const info = await oktaAuth.getUser();
-      const email = (info.email as string) || '';
+      const tokenClaims = [
+        authState.idToken?.claims as AuthClaims | undefined,
+        authState.accessToken?.claims as AuthClaims | undefined,
+      ];
+      let info: AuthClaims | null = null;
+
+      try {
+        info = await oktaAuth.getUser();
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn('[okta] userinfo lookup failed; using token claims only.', error);
+      }
+
+      const resolvedUser = resolveAuthUserFromClaims(info, ...tokenClaims);
       // Prefer the OIDC `picture` claim if Okta is mapped to AAD photos.
-      const oidcPicture = (info.picture as string) || undefined;
-      const graphPhoto = oidcPicture ? undefined : await fetchGraphAvatarUrl(email);
+      const oidcPicture = getAuthUserPictureFromClaims(info, ...tokenClaims);
+      const graphPhoto = oidcPicture || !resolvedUser.email
+        ? undefined
+        : await fetchGraphAvatarUrl(resolvedUser.email);
 
       if (cancelled) return;
       setUser({
-        name: (info.name as string) || '',
-        email,
+        ...resolvedUser,
         avatarUrl: oidcPicture || graphPhoto,
       });
+      setIsUserLoaded(true);
     })();
 
     return () => { cancelled = true; };
@@ -135,5 +157,10 @@ export function useAuthUser() {
 
   const signOut = () => oktaAuth.signOut();
 
-  return { user, signOut, isAuthenticated: authState?.isAuthenticated ?? false };
+  return {
+    user,
+    signOut,
+    isAuthenticated: authState?.isAuthenticated ?? false,
+    isLoading: Boolean(authState?.isAuthenticated && !isUserLoaded),
+  };
 }

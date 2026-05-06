@@ -18,16 +18,27 @@ export interface ScopedLicensesResult {
 }
 
 export function useScopedLicenses(licenses: License[], viewAsEmail?: string | null): ScopedLicensesResult {
-  const { user } = useAuthUser();
+  const { user, isLoading: authUserLoading } = useAuthUser();
 
   return useMemo(() => {
-    if (!user?.email) {
+    if (authUserLoading) {
       return {
         scopedLicenses: [],
         grant: getDepartmentGrant(null),
         allowedDepartments: [],
         isAdmin: false,
         isLoading: true,
+        isViewingAs: false,
+      };
+    }
+
+    if (!user?.email) {
+      return {
+        scopedLicenses: [],
+        grant: getDepartmentGrant(null),
+        allowedDepartments: [],
+        isAdmin: false,
+        isLoading: false,
         isViewingAs: false,
       };
     }
@@ -49,5 +60,5 @@ export function useScopedLicenses(licenses: License[], viewAsEmail?: string | nu
       isLoading: false,
       isViewingAs: realIsAdmin && viewAsEmail != null && viewAsEmail !== user.email,
     };
-  }, [licenses, user?.email, viewAsEmail]);
+  }, [authUserLoading, licenses, user?.email, viewAsEmail]);
 }
