@@ -392,6 +392,27 @@ interface RemindersPanelProps {
   onRun: () => void;
 }
 
+const REMINDER_SCHEDULE: Array<{ label: string; tone: 'planning' | 'medium' | 'high' | 'critical' | 'overdue' }> = [
+  { label: '90 days', tone: 'planning' },
+  { label: '60 days', tone: 'planning' },
+  { label: '30 days', tone: 'medium' },
+  { label: '14 days', tone: 'high' },
+  { label: '7 days', tone: 'critical' },
+  { label: '1 day', tone: 'critical' },
+  { label: '+1 day overdue', tone: 'overdue' },
+  { label: '+30 days overdue', tone: 'overdue' },
+  { label: '+60 days overdue', tone: 'overdue' },
+  { label: '+90 days overdue', tone: 'overdue' },
+];
+
+const scheduleToneClasses: Record<'planning' | 'medium' | 'high' | 'critical' | 'overdue', string> = {
+  planning: 'bg-sidebar-primary/10 text-sidebar-primary border-sidebar-primary/30',
+  medium: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
+  high: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
+  critical: 'bg-destructive/15 text-destructive border-destructive/30',
+  overdue: 'bg-destructive/25 text-destructive border-destructive/40',
+};
+
 function RemindersPanel({ state, loading, running, error, onRefresh, onRun }: RemindersPanelProps): React.ReactElement {
   const last = state?.lastRunResult;
   return (
@@ -429,6 +450,25 @@ function RemindersPanel({ state, loading, running, error, onRefresh, onRun }: Re
           <div>{error}</div>
         </div>
       )}
+
+      <div className="mb-4">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">
+          Cadence (each license fires once per trigger day)
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {REMINDER_SCHEDULE.map((s) => (
+            <span
+              key={s.label}
+              className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide ${scheduleToneClasses[s.tone]}`}
+            >
+              {s.label}
+            </span>
+          ))}
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-2">
+          Runs daily at 9:00 AM ET against every license. Each recipient is deduped per license + day pair within 24h.
+        </p>
+      </div>
 
       {!state?.lastRunAt && !error && (
         <p className="text-[12px] text-muted-foreground">

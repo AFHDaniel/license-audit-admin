@@ -54,25 +54,38 @@ function formatRenewalDate(value) {
 
 export function urgencyTier(daysUntilRenewal) {
   if (daysUntilRenewal == null || !Number.isFinite(daysUntilRenewal)) return 'info';
-  if (daysUntilRenewal <= 0) return 'overdue';
+  if (daysUntilRenewal <= -60) return 'overdue-severe';
+  if (daysUntilRenewal < 0) return 'overdue';
   if (daysUntilRenewal <= 7) return 'critical';
   if (daysUntilRenewal <= 14) return 'high';
   if (daysUntilRenewal <= 30) return 'medium';
+  if (daysUntilRenewal <= 90) return 'planning';
   return 'info';
 }
 
 function tierLabel(tier, daysUntilRenewal) {
+  const abs = Math.abs(daysUntilRenewal);
+  const plural = (n) => (n === 1 ? '' : 'S');
   switch (tier) {
-    case 'overdue': return `OVERDUE BY ${Math.abs(daysUntilRenewal)} DAY${Math.abs(daysUntilRenewal) === 1 ? '' : 'S'}`;
-    case 'critical': return `RENEWS IN ${daysUntilRenewal} DAY${daysUntilRenewal === 1 ? '' : 'S'}`;
-    case 'high': return `RENEWS IN ${daysUntilRenewal} DAYS`;
-    case 'medium': return `RENEWS IN ${daysUntilRenewal} DAYS`;
-    default: return `RENEWS IN ${daysUntilRenewal} DAYS`;
+    case 'overdue-severe':
+      return `${abs >= 90 ? 'LIKELY LAPSED' : 'SEVERELY OVERDUE'} — ${abs} DAYS PAST DUE`;
+    case 'overdue':
+      return `OVERDUE BY ${abs} DAY${plural(abs)}`;
+    case 'critical':
+      return daysUntilRenewal === 0 ? 'RENEWS TODAY' : `RENEWS IN ${daysUntilRenewal} DAY${plural(daysUntilRenewal)}`;
+    case 'high':
+    case 'medium':
+    case 'planning':
+    case 'info':
+    default:
+      return `RENEWS IN ${daysUntilRenewal} DAYS`;
   }
 }
 
 function tierColors(tier) {
   switch (tier) {
+    case 'overdue-severe':
+      return { bg: '#7a0c0c', ink: '#ffffff', accent: '#7a0c0c' };
     case 'overdue':
     case 'critical':
       return { bg: BRAND.dangerBg, ink: BRAND.dangerInk, accent: '#c0392b' };
@@ -80,23 +93,41 @@ function tierColors(tier) {
       return { bg: BRAND.warnBg, ink: BRAND.warnInk, accent: BRAND.gold };
     case 'medium':
       return { bg: BRAND.okBg, ink: BRAND.okInk, accent: BRAND.gold };
-    default:
+    case 'planning':
       return { bg: '#eef3f8', ink: BRAND.navySoft, accent: BRAND.navy };
+    case 'info':
+    default:
+      return { bg: '#f3f4f6', ink: BRAND.inkSoft, accent: BRAND.navy };
   }
 }
 
 function tierMessage(tier, daysUntilRenewal, applicationName) {
+  const abs = Math.abs(daysUntilRenewal);
   switch (tier) {
+    case 'overdue-severe':
+      if (abs >= 90) {
+        return `${applicationName} is ${abs} days past its renewal date. At this point the service has very likely been suspended or canceled by the vendor. Confirm directly with the vendor whether the license is still active and either renew, archive the record, or remove it from the Application Tracker.`;
+      }
+      return `${applicationName} is ${abs} days past its renewal date. The service may already have been suspended or downgraded. Contact the vendor immediately to confirm status and either renew or close out the record in the Application Tracker.`;
     case 'overdue':
-      return `${applicationName} was due for renewal ${Math.abs(daysUntilRenewal)} day${Math.abs(daysUntilRenewal) === 1 ? '' : 's'} ago and is currently past its renewal date. Confirm the renewal status with the vendor and update the record in the Application Tracker so it doesn't lapse.`;
+      return `${applicationName} was due for renewal ${abs} day${abs === 1 ? '' : 's'} ago and is currently past its renewal date. Confirm the renewal status with the vendor and update the record in the Application Tracker so it doesn't lapse.`;
     case 'critical':
+      if (daysUntilRenewal === 0) {
+        return `${applicationName} renews today. If the renewal is auto-billed, confirm the payment method on file is current. If it's manual, action is needed right now to avoid a lapse.`;
+      }
       return `${applicationName} renews in ${daysUntilRenewal} day${daysUntilRenewal === 1 ? '' : 's'}. If the renewal is auto-billed, confirm the payment method on file is still valid. If it's manual, action is needed this week.`;
     case 'high':
-      return `${applicationName} renews in ${daysUntilRenewal} days. This is a heads-up so you can budget for it, confirm whether you still need the licenses, and review payment details before the cutoff.`;
+      return `${applicationName} renews in ${daysUntilRenewal} days. This is a heads-up so you can confirm whether you still need the licenses, review payment details, and avoid a last-minute scramble.`;
     case 'medium':
       return `${applicationName} renews in ${daysUntilRenewal} days. No immediate action required — this email is a planning notice so the renewal doesn't surprise the budget.`;
+    case 'planning':
+      if (daysUntilRenewal > 60) {
+        return `${applicationName} renews in ${daysUntilRenewal} days. Long-lead heads-up so the renewal lands in your quarterly budget review with plenty of time to evaluate seats, alternatives, and contract terms.`;
+      }
+      return `${applicationName} renews in ${daysUntilRenewal} days. Good moment to put it on the next budget review and confirm with the team that the tool is still in active use.`;
+    case 'info':
     default:
-      return `${applicationName} renews in ${daysUntilRenewal} days. This is an informational notice from the Application Tracker.`;
+      return `${applicationName} renews in ${daysUntilRenewal} days. Informational notice from the Application Tracker — no action required yet.`;
   }
 }
 
@@ -176,9 +207,13 @@ export function renderRenewalReminder({ license, daysUntilRenewal, detailUrl, re
   const url = detailUrl || `https://applications.atlantafinehomes.com/license/${encodeURIComponent(license.id || '')}`;
   const message = tierMessage(tier, daysUntilRenewal, application);
 
-  const subjectPrefix = tier === 'overdue' ? 'OVERDUE'
-    : tier === 'critical' ? 'Action needed'
+  const subjectPrefix = tier === 'overdue-severe'
+      ? (Math.abs(daysUntilRenewal) >= 90 ? 'LAPSED' : 'SEVERELY OVERDUE')
+    : tier === 'overdue' ? 'OVERDUE'
+    : tier === 'critical' ? (daysUntilRenewal === 0 ? 'Renews today' : 'Action needed')
     : tier === 'high' ? 'Renewal in 2 weeks'
+    : tier === 'medium' ? 'Renewal notice'
+    : tier === 'planning' ? (daysUntilRenewal > 60 ? 'Renewal heads-up (90d)' : 'Renewal heads-up')
     : 'Renewal notice';
   const subject = `${subjectPrefix}: ${application} — ${label.toLowerCase()}`;
 

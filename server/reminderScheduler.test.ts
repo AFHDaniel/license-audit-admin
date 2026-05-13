@@ -38,6 +38,24 @@ test('selectLicensesForReminder picks only licenses whose days match a trigger',
   assert.deepEqual(result.map((r) => r.license.id).sort(), ['a', 'c']);
 });
 
+test('selectLicensesForReminder fires on negative days for overdue escalations', () => {
+  const now = new Date('2026-05-13T18:00:00Z');
+  const licenses = [
+    { id: 'p90', renewalDate: isoDaysFromNow(90, now) },
+    { id: 'p60', renewalDate: isoDaysFromNow(60, now) },
+    { id: 'd0', renewalDate: isoDaysFromNow(0, now) },
+    { id: 'm30', renewalDate: isoDaysFromNow(-30, now) },
+    { id: 'm60', renewalDate: isoDaysFromNow(-60, now) },
+    { id: 'm90', renewalDate: isoDaysFromNow(-90, now) },
+    { id: 'm91', renewalDate: isoDaysFromNow(-91, now) },
+  ];
+  const result = selectLicensesForReminder(licenses as never[], [90, 60, 1, -1, -30, -60, -90], now);
+  assert.deepEqual(
+    result.map((r) => r.license.id).sort(),
+    ['m30', 'm60', 'm90', 'p60', 'p90'],
+  );
+});
+
 test('runReminderPass sends to each recipient and dedupes against the recent log', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'afh-rem-'));
   process.env.EMAIL_LOG_DIR = tmpDir;

@@ -5,7 +5,10 @@ import { readEmailLog } from './emailLog.mjs';
 const STATE_FILENAME = 'reminder-state.json';
 const DEFAULT_PROD_DIR = '/home/data';
 const DEFAULT_DEV_DIR = path.join(process.cwd(), 'data');
-const DEFAULT_TRIGGERS = [30, 14, 7, 1];
+// Pre-renewal nudges at quarter (90), bi-monthly (60), monthly (30), two-week,
+// one-week, and last-day marks. Overdue escalations at 1, 30, 60, 90 days past
+// the date in Monday. Override with REMINDER_TRIGGER_DAYS=90,60,30,...
+const DEFAULT_TRIGGERS = [90, 60, 30, 14, 7, 1, -1, -30, -60, -90];
 const DEFAULT_RUN_HOUR_UTC = 13; // 9am ET ~ 13:00 UTC during DST
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -47,7 +50,7 @@ function parseReminderTriggers() {
   return raw
     .split(',')
     .map((s) => Number(s.trim()))
-    .filter((n) => Number.isFinite(n) && n >= 0);
+    .filter((n) => Number.isFinite(n));
 }
 
 function getRunHourUtc() {

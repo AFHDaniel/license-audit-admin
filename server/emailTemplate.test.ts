@@ -13,16 +13,23 @@ const sampleLicense = {
   seats: '120',
 };
 
-test('urgencyTier maps day counts to tiers', () => {
+test('urgencyTier maps day counts across the full cadence', () => {
+  assert.equal(urgencyTier(-90), 'overdue-severe');
+  assert.equal(urgencyTier(-60), 'overdue-severe');
+  assert.equal(urgencyTier(-59), 'overdue');
   assert.equal(urgencyTier(-2), 'overdue');
-  assert.equal(urgencyTier(0), 'overdue');
+  assert.equal(urgencyTier(-1), 'overdue');
+  assert.equal(urgencyTier(0), 'critical');
   assert.equal(urgencyTier(1), 'critical');
   assert.equal(urgencyTier(7), 'critical');
   assert.equal(urgencyTier(8), 'high');
   assert.equal(urgencyTier(14), 'high');
   assert.equal(urgencyTier(15), 'medium');
   assert.equal(urgencyTier(30), 'medium');
-  assert.equal(urgencyTier(31), 'info');
+  assert.equal(urgencyTier(31), 'planning');
+  assert.equal(urgencyTier(60), 'planning');
+  assert.equal(urgencyTier(90), 'planning');
+  assert.equal(urgencyTier(91), 'info');
   assert.equal(urgencyTier(null), 'info');
 });
 
@@ -52,6 +59,33 @@ test('renderRenewalReminder marks overdue licenses with the OVERDUE label and wa
   assert.match(result.subject, /^OVERDUE:/);
   assert.match(result.html, /OVERDUE BY 3 DAYS/);
   assert.match(result.plainText, /3 days ago/);
+});
+
+test('renderRenewalReminder uses SEVERELY OVERDUE for 60-89 days past due', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: -65 });
+  assert.match(result.subject, /^SEVERELY OVERDUE:/);
+  assert.match(result.html, /SEVERELY OVERDUE/);
+  assert.match(result.plainText, /65 days past/);
+});
+
+test('renderRenewalReminder flags 90+ day overdue as likely-lapsed', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: -120 });
+  assert.match(result.subject, /^LAPSED:/);
+  assert.match(result.html, /LIKELY LAPSED/);
+  assert.match(result.plainText, /likely been suspended or canceled/);
+});
+
+test('renderRenewalReminder gives a planning subject for 60-90 day lead times', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 75 });
+  assert.match(result.subject, /^Renewal heads-up \(90d\):/);
+  assert.match(result.html, /RENEWS IN 75 DAYS/);
+  assert.match(result.plainText, /quarterly budget review/);
+});
+
+test('renderRenewalReminder uses "Renews today" subject when daysUntilRenewal is 0', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 0 });
+  assert.match(result.subject, /^Renews today:/);
+  assert.match(result.html, /RENEWS TODAY/);
 });
 
 test('renderRenewalReminder escapes user-supplied strings to prevent HTML injection', () => {
