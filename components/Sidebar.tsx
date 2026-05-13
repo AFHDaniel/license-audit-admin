@@ -6,10 +6,12 @@ import {
   IconDownload,
   IconDotsVertical,
   IconLogout,
+  IconSettings,
 } from '@tabler/icons-react';
 import { View } from '../types';
 import { useAuthUser } from './AuthGate';
 import { getDepartmentGrant, isAdmin as checkIsAdmin, getAllowedDepartments } from '../auth/departmentAccess';
+import { isSuperAdmin } from '../auth/superAdmin';
 import { getInitials } from '../utils/initials';
 
 interface DisplayUser {
@@ -83,6 +85,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: View.INVENTORY, label: 'Inventory', Icon: IconListDetails },
     { id: View.ANALYTICS, label: 'Analytics', Icon: IconChartBar },
     { id: View.EXPORT, label: 'Export', Icon: IconDownload },
+    ...(isSuperAdmin(user?.email) ? [{ id: View.SETTINGS, label: 'Settings', Icon: IconSettings }] : []),
   ];
 
   const displayName = user?.name?.split(/\s+/)[0] || 'User';

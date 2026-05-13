@@ -57,6 +57,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/analytics" element={<App />} />
           <Route path="/export" element={<App />} />
           <Route path="/license/:id" element={<App />} />
+          <Route path="/settings" element={<App />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

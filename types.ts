@@ -5,6 +5,52 @@ export enum View {
   ANALYTICS = 'ANALYTICS',
   EXPORT = 'EXPORT',
   LICENSE_DETAIL = 'LICENSE_DETAIL',
+  SETTINGS = 'SETTINGS',
+}
+
+export interface EmailLogEntry {
+  id: string;
+  timestamp: string;
+  type: 'test' | 'reminder';
+  to: string;
+  subject: string;
+  sender: string;
+  status: string;
+  messageId: string | null;
+  errorMessage: string | null;
+  requestedBy: string | null;
+  licenseId: string | null;
+  daysUntilRenewal: number | null;
+}
+
+export interface EmailLogSummary {
+  totalSends: number;
+  successCount: number;
+  failureCount: number;
+  byType: { test: number; reminder: number };
+  lastSendAt: string | null;
+  lastFailureAt: string | null;
+}
+
+export interface DomainVerificationCheck {
+  record: 'Domain' | 'SPF' | 'DKIM' | 'DKIM2' | 'DMARC' | string;
+  status: 'Verified' | 'VerificationFailed' | 'VerificationRequested' | 'Unknown' | string;
+  errorCode: string | null;
+  recordType: string | null;
+  recordName: string | null;
+  recordValue: string | null;
+  ttl: number | null;
+}
+
+export interface DomainVerificationStatus {
+  overall: 'Verified' | 'Pending' | 'Failed' | 'Unknown' | string;
+  domainName: string;
+  fromSenderDomain: string | null;
+  mailFromSenderDomain: string | null;
+  senderAddress: string;
+  dataLocation: string | null;
+  userEngagementTracking: string | null;
+  checks: DomainVerificationCheck[];
 }
 
 export interface LicenseCoOwner {

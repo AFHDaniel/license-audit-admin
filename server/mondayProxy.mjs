@@ -4,6 +4,9 @@ import { join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildMondayColumnValuesPayload } from './mondayWriteback.mjs';
 import { EmailClient } from '@azure/communication-email';
+import { appendEmailLog, buildEmailLogEntry, readEmailLog, summarizeEmailLog } from './emailLog.mjs';
+import { verifySuperAdmin } from './oktaVerify.mjs';
+import { fetchAcsDomainStatus, getDomainStatusConfig } from './acsDomainStatus.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -1305,7 +1308,68 @@ async function sendRenewalReminderEmail({ to, license, daysUntilRenewal }) {
     content: { subject, plainText, html },
     recipients: { to: [{ address: to }] },
   });
-  return poller.pollUntilDone();
+  const result = await poller.pollUntilDone();
+
+  await appendEmailLog(buildEmailLogEntry({
+    type: 'reminder',
+    to,
+    subject,
+    sender,
+    status: result?.status || 'sent',
+    messageId: result?.id || null,
+    licenseId: license.id,
+    daysUntilRenewal,
+  }));
+
+  return result;
+}
+
+async function sendAdminTestEmail({ to, subject, message, requestedBy }) {
+  const client = getEmailClient();
+  if (!client) throw new Error('ACS_CONNECTION_STRING is not set on the server.');
+  const sender = process.env.ACS_SENDER_ADDRESS;
+  if (!sender) throw new Error('ACS_SENDER_ADDRESS is not set on the server.');
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 540px; color: #002349;">
+      <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #002349;">${subject}</h2>
+      <p style="margin: 0 0 12px 0;">${message}</p>
+      <p style="margin: 16px 0 0 0; font-size: 12px; color: #6b7280;">
+        Sent from Application Tracker (${process.env.NODE_ENV || 'development'}) at ${new Date().toISOString()}
+      </p>
+    </div>
+  `;
+
+  try {
+    const poller = await client.beginSend({
+      senderAddress: sender,
+      content: { subject, plainText: message, html },
+      recipients: { to: [{ address: to }] },
+    });
+    const result = await poller.pollUntilDone();
+    await appendEmailLog(buildEmailLogEntry({
+      type: 'test',
+      to,
+      subject,
+      sender,
+      status: result?.status || 'sent',
+      messageId: result?.id || null,
+      requestedBy,
+    }));
+    return { ok: true, sender, messageId: result?.id || null, status: result?.status || null };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await appendEmailLog(buildEmailLogEntry({
+      type: 'test',
+      to,
+      subject,
+      sender,
+      status: 'failed',
+      errorMessage,
+      requestedBy,
+    }));
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1502,33 +1566,108 @@ const server = createServer(async (req, res) => {
       }
 
       try {
-        const html = `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 540px; color: #002349;">
-            <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #002349;">${subject}</h2>
-            <p style="margin: 0 0 12px 0;">${messageBody}</p>
-            <p style="margin: 16px 0 0 0; font-size: 12px; color: #6b7280;">
-              Sent from Application Tracker (${process.env.NODE_ENV || 'development'}) at ${new Date().toISOString()}
-            </p>
-          </div>
-        `;
-        const poller = await client.beginSend({
-          senderAddress: sender,
-          content: { subject, plainText: messageBody, html },
-          recipients: { to: [{ address: to }] },
+        const result = await sendAdminTestEmail({
+          to,
+          subject,
+          message: messageBody,
+          requestedBy: 'bearer:test-secret',
         });
-        const result = await poller.pollUntilDone();
         sendJson(res, 200, {
           ok: true,
           to,
           subject,
-          sender,
-          messageId: result?.id || null,
-          status: result?.status || null,
+          sender: result.sender,
+          messageId: result.messageId,
+          status: result.status,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Email send failed';
         console.error('[email/test] send failed:', message);
         sendJson(res, 502, { error: message });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/email/send-test') {
+      const auth = await verifySuperAdmin(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
+
+      const body = (await readJson(req)) || {};
+      const to = typeof body.to === 'string' && body.to.includes('@')
+        ? body.to.trim()
+        : auth.email;
+      const subject = typeof body.subject === 'string' && body.subject.trim()
+        ? body.subject.trim()
+        : 'Application Tracker — test send';
+      const message = typeof body.message === 'string' && body.message.trim()
+        ? body.message.trim()
+        : `Triggered by ${auth.email} from Settings → Email at ${new Date().toISOString()}.`;
+
+      try {
+        const result = await sendAdminTestEmail({ to, subject, message, requestedBy: auth.email });
+        sendJson(res, 200, { ok: true, to, subject, ...result });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Email send failed';
+        console.error('[email/send-test] failed:', errorMessage);
+        sendJson(res, 502, { error: errorMessage });
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/email/log') {
+      const auth = await verifySuperAdmin(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
+
+      const limitRaw = Number(url.searchParams.get('limit') || '100');
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 500) : 100;
+
+      try {
+        const { entries, total } = await readEmailLog({ limit });
+        sendJson(res, 200, {
+          ok: true,
+          total,
+          entries,
+          summary: summarizeEmailLog(entries),
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to read email log';
+        console.error('[email/log] read failed:', errorMessage);
+        sendJson(res, 500, { error: errorMessage });
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/email/domain-status') {
+      const auth = await verifySuperAdmin(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
+
+      const config = getDomainStatusConfig();
+      const required = ['subscriptionId', 'resourceGroup', 'emailServiceName', 'domainName'];
+      const missing = required.filter((key) => !config[key]);
+      if (missing.length > 0) {
+        sendJson(res, 503, {
+          error: 'ACS domain status is not configured.',
+          missing,
+        });
+        return;
+      }
+
+      try {
+        const status = await fetchAcsDomainStatus();
+        sendJson(res, 200, { ok: true, status });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'ACS lookup failed';
+        console.error('[email/domain-status] failed:', errorMessage);
+        sendJson(res, 502, { error: errorMessage });
       }
       return;
     }

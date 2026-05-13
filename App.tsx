@@ -12,6 +12,8 @@ import Inventory from './screens/Inventory';
 import Analytics from './screens/Analytics';
 import ExportReports from './screens/ExportReports';
 import LicenseDetail from './screens/LicenseDetail';
+import Settings from './screens/Settings';
+import { isSuperAdmin } from './auth/superAdmin';
 import { View, License, InventoryFilterPreset } from './types';
 import { fetchLicenses } from './services/licensesApi';
 import { buildGlobalInventoryPreset } from './utils/globalSearchPreset';
@@ -26,6 +28,7 @@ function pathToView(pathname: string): View {
   if (pathname.startsWith('/analytics')) return View.ANALYTICS;
   if (pathname.startsWith('/export')) return View.EXPORT;
   if (pathname.startsWith('/license/')) return View.LICENSE_DETAIL;
+  if (pathname.startsWith('/settings')) return View.SETTINGS;
   return View.DASHBOARD;
 }
 
@@ -35,6 +38,7 @@ function viewToPath(view: View): string {
     case View.INVENTORY: return '/inventory';
     case View.ANALYTICS: return '/analytics';
     case View.EXPORT: return '/export';
+    case View.SETTINGS: return '/settings';
     default: return '/dashboard';
   }
 }
@@ -272,6 +276,22 @@ const App: React.FC = () => {
             onLicenseUpdated={refreshLicensesNow}
           />
         );
+      case View.SETTINGS: {
+        if (!isSuperAdmin(user?.email)) {
+          return (
+            <div className="flex-1 flex items-center justify-center p-20">
+              <div className="text-center space-y-3 max-w-md">
+                <IconLock size={28} className="text-muted-foreground mx-auto" strokeWidth={1.5} />
+                <p className="text-xl font-semibold text-foreground font-display">Settings is restricted</p>
+                <p className="text-sm text-muted-foreground">
+                  Email settings are limited to Daniel for now. Ping him if you need a test sent.
+                </p>
+              </div>
+            </div>
+          );
+        }
+        return <Settings />;
+      }
       default:
         return <Dashboard licenses={scopedLicenses} allLicenses={licenses} />;
     }
