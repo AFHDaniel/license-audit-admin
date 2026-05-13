@@ -12,6 +12,7 @@ import {
   runReminderPass,
   startReminderInterval,
 } from './reminderScheduler.mjs';
+import { renderAdminTest, renderRenewalReminder } from './emailTemplate.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -1276,37 +1277,7 @@ async function sendRenewalReminderEmail({ to, license, daysUntilRenewal }) {
   const sender = process.env.ACS_SENDER_ADDRESS;
   if (!sender) throw new Error('ACS_SENDER_ADDRESS is not set on the server.');
 
-  const dept = license.department || 'unassigned';
-  const renewalDate = license.renewalDate || 'TBD';
-  const method = license.renewalMethod || 'Manual';
-  const amount = license.amount > 0 ? `$${Number(license.amount).toLocaleString()}` : 'not on file';
-  const detailUrl = `https://applications.atlantafinehomes.com/license/${license.id}`;
-
-  const subject = `Renewal reminder: ${license.application} (${daysUntilRenewal} days)`;
-  const plainText = [
-    `${license.application} is set to renew in ${daysUntilRenewal} days.`,
-    '',
-    `Department: ${dept}`,
-    `Renewal date: ${renewalDate}`,
-    `Renewal method: ${method}`,
-    `Amount on file: ${amount}`,
-    '',
-    `Review in the dashboard: ${detailUrl}`,
-  ].join('\n');
-
-  const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 540px; color: #1f2937;">
-      <h2 style="margin: 0 0 8px 0; font-size: 18px;">Renewal reminder</h2>
-      <p style="margin: 0 0 12px 0;"><strong>${license.application}</strong> is set to renew in <strong>${daysUntilRenewal} days</strong>.</p>
-      <table style="border-collapse: collapse; font-size: 13px;">
-        <tr><td style="padding: 4px 12px 4px 0; color: #6b7280;">Department</td><td>${dept}</td></tr>
-        <tr><td style="padding: 4px 12px 4px 0; color: #6b7280;">Renewal date</td><td>${renewalDate}</td></tr>
-        <tr><td style="padding: 4px 12px 4px 0; color: #6b7280;">Renewal method</td><td>${method}</td></tr>
-        <tr><td style="padding: 4px 12px 4px 0; color: #6b7280;">Amount on file</td><td>${amount}</td></tr>
-      </table>
-      <p style="margin: 16px 0 0 0;"><a href="${detailUrl}" style="color: #4f46e5;">Review in the dashboard</a></p>
-    </div>
-  `;
+  const { subject, plainText, html } = renderRenewalReminder({ license, daysUntilRenewal });
 
   const poller = await client.beginSend({
     senderAddress: sender,
@@ -1335,27 +1306,19 @@ async function sendAdminTestEmail({ to, subject, message, requestedBy }) {
   const sender = process.env.ACS_SENDER_ADDRESS;
   if (!sender) throw new Error('ACS_SENDER_ADDRESS is not set on the server.');
 
-  const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 540px; color: #002349;">
-      <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #002349;">${subject}</h2>
-      <p style="margin: 0 0 12px 0;">${message}</p>
-      <p style="margin: 16px 0 0 0; font-size: 12px; color: #6b7280;">
-        Sent from Application Tracker (${process.env.NODE_ENV || 'development'}) at ${new Date().toISOString()}
-      </p>
-    </div>
-  `;
+  const rendered = renderAdminTest({ subject, message, requestedBy });
 
   try {
     const poller = await client.beginSend({
       senderAddress: sender,
-      content: { subject, plainText: message, html },
+      content: { subject: rendered.subject, plainText: rendered.plainText, html: rendered.html },
       recipients: { to: [{ address: to }] },
     });
     const result = await poller.pollUntilDone();
     await appendEmailLog(buildEmailLogEntry({
       type: 'test',
       to,
-      subject,
+      subject: rendered.subject,
       sender,
       status: result?.status || 'sent',
       messageId: result?.id || null,
@@ -1367,7 +1330,7 @@ async function sendAdminTestEmail({ to, subject, message, requestedBy }) {
     await appendEmailLog(buildEmailLogEntry({
       type: 'test',
       to,
-      subject,
+      subject: rendered.subject,
       sender,
       status: 'failed',
       errorMessage,

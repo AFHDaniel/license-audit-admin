@@ -27,6 +27,7 @@ dist-ssr
 *.sw?
 
 CLAUDE.md
+INTERNAL.md
 docs/plans/
 .claude/
 notes/
