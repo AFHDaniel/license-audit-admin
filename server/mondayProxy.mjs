@@ -7,6 +7,11 @@ import { EmailClient } from '@azure/communication-email';
 import { appendEmailLog, buildEmailLogEntry, readEmailLog, summarizeEmailLog } from './emailLog.mjs';
 import { verifySuperAdmin } from './oktaVerify.mjs';
 import { fetchAcsDomainStatus, getDomainStatusConfig } from './acsDomainStatus.mjs';
+import {
+  getReminderState,
+  runReminderPass,
+  startReminderInterval,
+} from './reminderScheduler.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -1643,6 +1648,44 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/email/reminders/state') {
+      const auth = await verifySuperAdmin(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
+      try {
+        const state = await getReminderState();
+        sendJson(res, 200, { ok: true, ...state });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to read reminder state.';
+        sendJson(res, 500, { error: message });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/email/reminders/run') {
+      const auth = await verifySuperAdmin(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
+      try {
+        const summary = await runReminderPass({
+          loadLicenses: loadLicensesForScheduler,
+          resolveRecipients: resolveReminderRecipientsForLicense,
+          sendReminder: sendRenewalReminderEmail,
+          reason: `manual:${auth.email}`,
+        });
+        sendJson(res, 200, { ok: true, summary });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Reminder pass failed.';
+        console.error('[reminders] manual run failed:', message);
+        sendJson(res, 502, { error: message });
+      }
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/email/domain-status') {
       const auth = await verifySuperAdmin(req);
       if (!auth.ok) {
@@ -1747,3 +1790,28 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Monday proxy listening on http://localhost:${PORT}`);
 });
+
+function resolveReminderRecipientsForLicense(license) {
+  const recipients = new Set();
+  for (const coOwner of license.coOwners || []) {
+    const email = (coOwner?.email || '').trim().toLowerCase();
+    if (email && email.includes('@')) recipients.add(email);
+  }
+  const fallback = (process.env.REMINDER_FALLBACK_RECIPIENT || '').trim().toLowerCase();
+  if (recipients.size === 0 && fallback && fallback.includes('@')) recipients.add(fallback);
+  return Array.from(recipients);
+}
+
+async function loadLicensesForScheduler() {
+  const payload = await resolveLicensesPayload({ reason: 'reminder-scan' });
+  return payload?.licenses || [];
+}
+
+if (process.env.REMINDERS_ENABLED !== 'false') {
+  startReminderInterval({
+    loadLicenses: loadLicensesForScheduler,
+    resolveRecipients: resolveReminderRecipientsForLicense,
+    sendReminder: sendRenewalReminderEmail,
+  });
+  console.log('[reminders] scheduler started (REMINDERS_ENABLED!=false)');
+}

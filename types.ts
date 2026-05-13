@@ -42,6 +42,29 @@ export interface DomainVerificationCheck {
   ttl: number | null;
 }
 
+export interface ReminderRunSummary {
+  startedAt: string;
+  endedAt: string | null;
+  reason: string;
+  scanned: number;
+  matched: number;
+  attempted: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+  failures: Array<{
+    licenseId: string;
+    to: string;
+    daysUntilRenewal: number;
+    message: string;
+  }>;
+}
+
+export interface ReminderState {
+  lastRunAt: string | null;
+  lastRunResult: ReminderRunSummary | null;
+}
+
 export interface DomainVerificationStatus {
   overall: 'Verified' | 'Pending' | 'Failed' | 'Unknown' | string;
   domainName: string;

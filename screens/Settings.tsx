@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useOktaAuth } from '@okta/okta-react';
 import {
   IconAlertCircle,
+  IconCalendarClock,
   IconCircleCheck,
   IconCircleX,
   IconLoader2,
@@ -13,10 +14,13 @@ import {
   DomainVerificationStatus,
   EmailLogEntry,
   EmailLogSummary,
+  ReminderState,
 } from '../types';
 import {
   fetchDomainStatus,
   fetchEmailLog,
+  fetchReminderState,
+  runReminderPass,
   sendTestEmail,
   TokenProvider,
 } from '../services/emailAdminApi';
@@ -379,6 +383,109 @@ function LogPanel({ entries, summary, loading, error, onRefresh }: LogPanelProps
   );
 }
 
+interface RemindersPanelProps {
+  state: ReminderState | null;
+  loading: boolean;
+  running: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  onRun: () => void;
+}
+
+function RemindersPanel({ state, loading, running, error, onRefresh, onRun }: RemindersPanelProps): React.ReactElement {
+  const last = state?.lastRunResult;
+  return (
+    <section className="rounded-lg border border-border bg-card p-5">
+      <header className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <IconCalendarClock size={18} className="text-sidebar-primary" />
+          <h2 className="text-sm font-semibold text-foreground">Renewal reminders</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading || running}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border border-border hover:bg-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {loading ? <IconLoader2 size={12} className="animate-spin" /> : <IconRefresh size={12} />}
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 rounded-md bg-sidebar-primary px-3 py-1 text-[11px] font-semibold text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {running ? <IconLoader2 size={12} className="animate-spin" /> : <IconCalendarClock size={12} />}
+            {running ? 'Running…' : 'Run reminders now'}
+          </button>
+        </div>
+      </header>
+
+      {error && (
+        <div className="mb-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+          <IconAlertCircle size={14} className="mt-0.5 shrink-0" />
+          <div>{error}</div>
+        </div>
+      )}
+
+      {!state?.lastRunAt && !error && (
+        <p className="text-[12px] text-muted-foreground">
+          {loading ? 'Loading…' : 'No reminder pass has run yet. Click Run reminders now to trigger one immediately.'}
+        </p>
+      )}
+
+      {last && (
+        <div className="space-y-3 text-[12px]">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <Stat label="Scanned" value={last.scanned} />
+            <Stat label="Matched" value={last.matched} />
+            <Stat label="Sent" value={last.sent} tone="good" />
+            <Stat label="Skipped" value={last.skipped} tone="muted" />
+            <Stat label="Failed" value={last.failed} tone={last.failed ? 'bad' : 'muted'} />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Last run: {new Date(last.endedAt || last.startedAt).toLocaleString()} ({last.reason})
+          </p>
+          {last.failures.length > 0 && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] text-destructive space-y-1">
+              <div className="font-semibold">Failures:</div>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {last.failures.slice(0, 5).map((f, i) => (
+                  <li key={i}>
+                    <span className="font-mono">{f.licenseId}</span> → {f.to} ({f.daysUntilRenewal}d): {f.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface StatProps {
+  label: string;
+  value: number;
+  tone?: 'good' | 'bad' | 'muted';
+}
+
+function Stat({ label, value, tone = 'muted' }: StatProps): React.ReactElement {
+  const cls = tone === 'good'
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : tone === 'bad'
+      ? 'text-destructive'
+      : 'text-foreground';
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`text-lg font-semibold tabular-nums ${cls}`}>{value}</div>
+    </div>
+  );
+}
+
 const Settings: React.FC = () => {
   const getAccessToken = useAccessTokenProvider();
   const [status, setStatus] = useState<DomainVerificationStatus | null>(null);
@@ -390,7 +497,13 @@ const Settings: React.FC = () => {
   const [logLoading, setLogLoading] = useState(true);
   const [logError, setLogError] = useState<string | null>(null);
 
-  const abortRefs = useRef<{ status?: AbortController; log?: AbortController }>({});
+  const [reminderState, setReminderState] = useState<ReminderState | null>(null);
+  const [reminderLoading, setReminderLoading] = useState(true);
+  const [reminderRunning, setReminderRunning] = useState(false);
+  const [reminderError, setReminderError] = useState<string | null>(null);
+
+  const toast = useToast();
+  const abortRefs = useRef<{ status?: AbortController; log?: AbortController; reminders?: AbortController }>({});
 
   const loadStatus = useCallback(async () => {
     abortRefs.current.status?.abort();
@@ -428,14 +541,53 @@ const Settings: React.FC = () => {
     }
   }, [getAccessToken]);
 
+  const loadReminders = useCallback(async () => {
+    abortRefs.current.reminders?.abort();
+    const controller = new AbortController();
+    abortRefs.current.reminders = controller;
+    setReminderLoading(true);
+    setReminderError(null);
+    try {
+      const result = await fetchReminderState({ getAccessToken, signal: controller.signal });
+      setReminderState(result);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setReminderError(error instanceof Error ? error.message : 'Failed to read reminder state.');
+    } finally {
+      if (!controller.signal.aborted) setReminderLoading(false);
+    }
+  }, [getAccessToken]);
+
+  const runReminders = useCallback(async () => {
+    setReminderRunning(true);
+    setReminderError(null);
+    try {
+      const summary = await runReminderPass({ getAccessToken });
+      setReminderState({ lastRunAt: summary.endedAt, lastRunResult: summary });
+      toast.success(
+        'Reminder pass complete',
+        `${summary.sent} sent, ${summary.skipped} skipped, ${summary.failed} failed out of ${summary.matched} matched.`,
+      );
+      void loadLog();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Reminder pass failed.';
+      setReminderError(message);
+      toast.error('Reminder pass failed', message);
+    } finally {
+      setReminderRunning(false);
+    }
+  }, [getAccessToken, loadLog, toast]);
+
   useEffect(() => {
     void loadStatus();
     void loadLog();
+    void loadReminders();
     return () => {
       abortRefs.current.status?.abort();
       abortRefs.current.log?.abort();
+      abortRefs.current.reminders?.abort();
     };
-  }, [loadStatus, loadLog]);
+  }, [loadStatus, loadLog, loadReminders]);
 
   const defaultRecipient = useMemo(() => getSuperAdminEmail(), []);
 
@@ -459,6 +611,15 @@ const Settings: React.FC = () => {
         defaultRecipient={defaultRecipient}
         getAccessToken={getAccessToken}
         onSent={() => void loadLog()}
+      />
+
+      <RemindersPanel
+        state={reminderState}
+        loading={reminderLoading}
+        running={reminderRunning}
+        error={reminderError}
+        onRefresh={() => void loadReminders()}
+        onRun={() => void runReminders()}
       />
 
       <LogPanel

@@ -2,6 +2,8 @@ import {
   DomainVerificationStatus,
   EmailLogEntry,
   EmailLogSummary,
+  ReminderRunSummary,
+  ReminderState,
 } from '../types';
 
 export type TokenProvider = () => Promise<string | null>;
@@ -82,6 +84,23 @@ export interface DomainStatusResponse {
 export interface DomainStatusError {
   error: string;
   missing?: string[];
+}
+
+export async function fetchReminderState(opts: RequestOptions): Promise<ReminderState> {
+  const res = await authedFetch('/api/email/reminders/state', opts);
+  if (!res.ok) throw new Error(await parseError(res, 'Failed to read reminder state'));
+  const body = await res.json();
+  return { lastRunAt: body.lastRunAt ?? null, lastRunResult: body.lastRunResult ?? null };
+}
+
+export async function runReminderPass(opts: RequestOptions): Promise<ReminderRunSummary> {
+  const res = await authedFetch('/api/email/reminders/run', opts, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'Reminder pass failed'));
+  const body = await res.json();
+  return body.summary as ReminderRunSummary;
 }
 
 export async function fetchDomainStatus(opts: RequestOptions): Promise<DomainStatusResponse> {
