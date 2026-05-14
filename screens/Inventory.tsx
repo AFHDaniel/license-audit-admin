@@ -262,8 +262,9 @@ const Inventory: React.FC<InventoryProps> = ({
             <span className="text-foreground font-medium">{drilldownContextLabel}</span>
             <button
               type="button"
-              onClick={() => setDrilldownContextLabel(null)}
+              onClick={clearFilters}
               className="text-accent hover:opacity-70 ml-1"
+              aria-label="Clear drilldown filters"
             >
               <IconX className="w-3 h-3" />
             </button>
