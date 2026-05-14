@@ -799,10 +799,15 @@ function getRenewalDateRaw(columns) {
 function getRenewalType(columns) {
   const column = getMappedColumn(columns, 'renewalType');
   if (!column) return '';
-  // Status columns expose the label as `text` and `{label}` in value JSON.
-  if (column.text && column.text.trim()) return column.text.trim();
+  // Status columns return text="<label at default position>" even when no
+  // value has been set, so we can't trust `text` alone. Treat a null/missing
+  // value object as "unset" regardless of what text contains.
   const raw = column.value;
-  if (raw && typeof raw === 'object' && typeof raw.label === 'string') return raw.label;
+  if (!raw || typeof raw !== 'object') return '';
+  if (typeof raw.label === 'string' && raw.label) return raw.label;
+  // value might be {index: N, ...} — trust the column's own text in that case,
+  // because Monday already resolved the index to a label string for display.
+  if (typeof raw.index === 'number' && column.text) return String(column.text).trim();
   return '';
 }
 
