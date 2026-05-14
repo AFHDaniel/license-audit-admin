@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { buildMondayColumnValuesPayload } from './mondayWriteback.mjs';
 import { EmailClient } from '@azure/communication-email';
 import { appendEmailLog, buildEmailLogEntry, readEmailLog, summarizeEmailLog } from './emailLog.mjs';
-import { verifySuperAdmin } from './oktaVerify.mjs';
+import { verifyOktaUser, verifySuperAdmin } from './oktaVerify.mjs';
+import { appendRenewalAuditEntry, readRenewalAudit } from './renewalAudit.mjs';
+import { logError, logInfo } from './logger.mjs';
 import { fetchAcsDomainStatus, getDomainStatusConfig } from './acsDomainStatus.mjs';
 import {
   getReminderState,
@@ -148,6 +150,7 @@ const BOARD_ITEMS_QUERY = `
       id
       name
       items_page(limit: 100) {
+        cursor
         items {
           id
           name
@@ -179,6 +182,48 @@ const BOARD_ITEMS_QUERY = `
               column {
                 title
               }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const NEXT_ITEMS_PAGE_QUERY = `
+  query GetNextItemsPage($cursor: String!) {
+    next_items_page(cursor: $cursor, limit: 100) {
+      cursor
+      items {
+        id
+        name
+        board {
+          id
+          name
+        }
+        column_values {
+          id
+          type
+          text
+          value
+          column {
+            title
+          }
+        }
+        subitems {
+          id
+          name
+          board {
+            id
+            name
+          }
+          column_values {
+            id
+            type
+            text
+            value
+            column {
+              title
             }
           }
         }
@@ -265,22 +310,59 @@ const SINGLE_ITEM_QUERY = `
   }
 `;
 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://applications.atlantafinehomes.com',
+  'http://localhost:3000',
+];
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
+  : DEFAULT_ALLOWED_ORIGINS);
+
+function setCors(res, req) {
+  const origin = req?.headers?.origin || '';
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  } else if (!origin) {
+    // Same-origin requests (no Origin header) don't need CORS at all.
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
+function setSecurityHeaders(res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+}
+
 function sendJson(res, statusCode, payload) {
-  setCors(res);
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(payload));
 }
 
+const READ_JSON_MAX_BYTES = Math.max(
+  1024,
+  Number(process.env.READ_JSON_MAX_BYTES) || 256 * 1024,
+);
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function readJson(req) {
   const chunks = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
+    totalBytes += chunk.length;
+    if (totalBytes > READ_JSON_MAX_BYTES) {
+      throw new HttpError(413, 'Request body too large.');
+    }
     chunks.push(chunk);
   }
 
@@ -293,8 +375,50 @@ async function readJson(req) {
     return null;
   }
 
-  return JSON.parse(raw);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, 'Request body is not valid JSON.');
+  }
 }
+
+// ---- Simple in-memory rate limiter ----------------------------------------
+// Token bucket per (route, client-ip). Inadequate for horizontal scale-out,
+// but sufficient for a single-instance App Service. Keyed maps are small;
+// stale entries get pruned during the periodic sweep.
+const rateLimiters = new Map();
+
+function clientIpFor(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.length > 0) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+function checkRateLimit(routeKey, ip, limit, windowMs) {
+  const key = `${routeKey}::${ip}`;
+  const now = Date.now();
+  let bucket = rateLimiters.get(key);
+  if (!bucket || now - bucket.windowStart >= windowMs) {
+    bucket = { windowStart: now, count: 0 };
+    rateLimiters.set(key, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > limit) {
+    const retryAfterMs = windowMs - (now - bucket.windowStart);
+    return { ok: false, retryAfterMs };
+  }
+  return { ok: true };
+}
+
+// Sweep stale entries hourly so the Map doesn't grow unbounded.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateLimiters) {
+    if (now - bucket.windowStart > 60 * 60 * 1000) rateLimiters.delete(key);
+  }
+}, 30 * 60 * 1000).unref?.();
 
 async function mondayRequest(query, variables = {}) {
   if (!MONDAY_API_TOKEN) {
@@ -974,7 +1098,43 @@ function replaceLicenseInCache(updatedLicense) {
   };
 }
 
-async function updateLicenseRenewal(itemId, boardId, updates) {
+function validateRenewalUpdates(updates) {
+  // Reject blatantly bad inputs at the boundary. Monday will accept negatives
+  // and string-where-number values silently, so we guard before write.
+  if (updates == null || typeof updates !== 'object') {
+    throw new Error('Renewal update payload must be an object.');
+  }
+  if (updates.amount != null) {
+    const n = Number(updates.amount);
+    if (!Number.isFinite(n) || n < 0) {
+      throw new Error('Renewal amount must be a non-negative number.');
+    }
+  }
+  if (updates.renewalDate != null && typeof updates.renewalDate !== 'string') {
+    throw new Error('Renewal date must be a string.');
+  }
+  for (const field of ['length', 'renewalMethod', 'seats', 'useCase']) {
+    if (updates[field] != null && typeof updates[field] !== 'string') {
+      throw new Error(`${field} must be a string.`);
+    }
+  }
+}
+
+function snapshotLicenseForAudit(license) {
+  if (!license) return null;
+  return {
+    amount: license.amount ?? null,
+    length: license.length ?? null,
+    renewalMethod: license.renewalMethod ?? null,
+    renewalDate: license.renewalDate ?? null,
+    seats: license.seats ?? null,
+    useCase: license.useCase ?? null,
+  };
+}
+
+async function updateLicenseRenewal(itemId, boardId, updates, options = {}) {
+  validateRenewalUpdates(updates);
+
   const resolvedItemId = String(itemId || '').trim();
   const resolvedBoardId = String(boardId || '').trim();
 
@@ -993,6 +1153,11 @@ async function updateLicenseRenewal(itemId, boardId, updates) {
     throw new Error('No writable renewal fields were provided or matched on this board.');
   }
 
+  const previousLicense = (licensesCache.payload?.licenses || []).find(
+    (license) => String(license.id) === resolvedItemId,
+  );
+  const beforeSnapshot = snapshotLicenseForAudit(previousLicense);
+
   console.log(`[writeback] item=${resolvedItemId} board=${resolvedBoardId} fields=${Object.keys(columnValues).join(',')}`);
 
   await mondayRequest(UPDATE_ITEM_COLUMNS_MUTATION, {
@@ -1000,10 +1165,6 @@ async function updateLicenseRenewal(itemId, boardId, updates) {
     itemId: resolvedItemId,
     columnValues: JSON.stringify(columnValues),
   });
-
-  const previousLicense = (licensesCache.payload?.licenses || []).find(
-    (license) => String(license.id) === resolvedItemId,
-  );
 
   const updatedLicense = await fetchSingleLicense(resolvedItemId, {
     sourceBoardId: previousLicense?.sourceBoardId || '',
@@ -1013,6 +1174,21 @@ async function updateLicenseRenewal(itemId, boardId, updates) {
 
   if (updatedLicense) {
     replaceLicenseInCache(updatedLicense);
+  }
+
+  // Best-effort audit append. Failure must not break the write path.
+  try {
+    await appendRenewalAuditEntry({
+      actorEmail: options.actorEmail || null,
+      itemId: resolvedItemId,
+      boardId: resolvedBoardId,
+      fields: Object.keys(columnValues),
+      before: beforeSnapshot,
+      after: snapshotLicenseForAudit(updatedLicense),
+      requested: updates,
+    });
+  } catch (auditError) {
+    console.error('[renewal-audit] append failed:', auditError?.message || auditError);
   }
 
   return {
@@ -1073,18 +1249,52 @@ function mapMondayItem(item, options = {}) {
   };
 }
 
+// Hard upper bound on cursor pagination per board to prevent a runaway loop if
+// Monday ever returns non-null cursors indefinitely. 100 pages × 100 items/page
+// = 10,000 items per board, comfortably above any AFH board's foreseeable size.
+const MAX_PAGES_PER_BOARD = 100;
+
+async function drainBoardItems(board) {
+  const collected = [...(board?.items_page?.items || [])];
+  let cursor = board?.items_page?.cursor || null;
+  let pageCount = 1;
+  while (cursor && pageCount < MAX_PAGES_PER_BOARD) {
+    const nextPage = await mondayRequest(NEXT_ITEMS_PAGE_QUERY, { cursor });
+    const page = nextPage?.next_items_page;
+    if (!page) break;
+    if (Array.isArray(page.items)) collected.push(...page.items);
+    cursor = page.cursor || null;
+    pageCount += 1;
+  }
+  if (cursor && pageCount >= MAX_PAGES_PER_BOARD) {
+    console.warn(
+      `[monday-proxy] board ${board?.id} hit MAX_PAGES_PER_BOARD (${MAX_PAGES_PER_BOARD}); cursor still present, items may be truncated`,
+    );
+  }
+  return collected;
+}
+
 async function getBoardLicenses() {
   const data = await mondayRequest(BOARD_ITEMS_QUERY, {
     boardIds: MONDAY_BOARD_IDS,
   });
 
   const boards = data?.boards || [];
+
+  // Drain cursors per board so that boards with >100 items are fully fetched
+  // instead of being silently truncated. Done sequentially per board to keep
+  // Monday API complexity in check; multiple boards run in parallel.
+  const boardsWithItems = await Promise.all(
+    boards.map(async (board) => {
+      const items = await drainBoardItems(board);
+      return { ...board, _items: items };
+    }),
+  );
+
   const coOwnerUserIds = new Set();
 
-  for (const board of boards) {
-    const items = board?.items_page?.items || [];
-
-    for (const item of items) {
+  for (const board of boardsWithItems) {
+    for (const item of board._items) {
       const itemColumns = columnsById(item.column_values);
       for (const userId of collectCoOwnerUserIds(getMappedColumn(itemColumns, 'coOwners'))) {
         coOwnerUserIds.add(userId);
@@ -1102,8 +1312,8 @@ async function getBoardLicenses() {
   const mondayUsersById = await getMondayUsersByIds(Array.from(coOwnerUserIds));
   const licenses = [];
 
-  for (const board of boards) {
-    const items = board?.items_page?.items || [];
+  for (const board of boardsWithItems) {
+    const items = board._items;
     const boardId = String(board?.id || '');
     const boardName = board?.name || '';
 
@@ -1139,7 +1349,7 @@ async function getBoardLicenses() {
     }
   }
 
-  const boardNames = boards.map((board) => board?.name).filter(Boolean);
+  const boardNames = boardsWithItems.map((board) => board?.name).filter(Boolean);
 
   return {
     source: 'monday',
@@ -1501,23 +1711,87 @@ async function fetchAzureProfilePhoto(email) {
   }
 }
 
+// ---- Deep health probes ---------------------------------------------------
+// /api/health is unconditional 200; /api/health?deep=1 runs real probes
+// against Monday and disk and returns 503 if anything critical is failing.
+// Results are cached briefly to avoid quota burn from polling clients.
+const HEALTH_PROBE_TTL_MS = 30_000;
+let healthProbeCache = null; // { result, expiresAtMs }
+const HEALTH_PROBE_QUERY = 'query HealthProbe { complexity { query } }';
+
+async function probeMonday() {
+  if (!MONDAY_API_TOKEN) return { ok: false, error: 'MONDAY_API_TOKEN not configured' };
+  try {
+    await mondayRequest(HEALTH_PROBE_QUERY, {});
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error?.message || 'monday probe failed' };
+  }
+}
+
+async function probeDisk() {
+  // Resolve the dir the email log uses since that's the operationally-critical path.
+  const dir = process.env.EMAIL_LOG_DIR
+    || (process.env.NODE_ENV === 'production' ? '/home/data' : join(process.cwd(), 'data'));
+  const probePath = join(dir, `.health-${process.pid}-${Date.now()}.tmp`);
+  try {
+    const { mkdir, writeFile, unlink } = await import('node:fs/promises');
+    await mkdir(dir, { recursive: true });
+    await writeFile(probePath, 'ok', 'utf8');
+    await unlink(probePath);
+    return { ok: true, dir };
+  } catch (error) {
+    return { ok: false, dir, error: error?.message || 'disk probe failed' };
+  }
+}
+
+async function runHealthProbes() {
+  const now = Date.now();
+  if (healthProbeCache && healthProbeCache.expiresAtMs > now) {
+    return healthProbeCache.result;
+  }
+  const [monday, disk] = await Promise.all([probeMonday(), probeDisk()]);
+  const ok = monday.ok && disk.ok;
+  const result = {
+    ok,
+    service: 'monday-proxy',
+    checkedAt: new Date().toISOString(),
+    checks: { monday, disk },
+  };
+  healthProbeCache = { result, expiresAtMs: now + HEALTH_PROBE_TTL_MS };
+  return result;
+}
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
+    // Apply CORS + security headers on every response (one place).
+    setCors(res, req);
+    setSecurityHeaders(res);
+
     if (req.method === 'OPTIONS') {
-      setCors(res);
       res.statusCode = 204;
       res.end();
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/health') {
-      sendJson(res, 200, { ok: true, service: 'monday-proxy' });
+      const deep = url.searchParams.get('deep') === '1';
+      if (!deep) {
+        sendJson(res, 200, { ok: true, service: 'monday-proxy' });
+        return;
+      }
+      const result = await runHealthProbes();
+      sendJson(res, result.ok ? 200 : 503, result);
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/profile/photo') {
+      // Photo is consumed via <img src> which cannot pass an Authorization
+      // header. The server-side AAD lookup is restricted to allowed domains,
+      // and the photo content is low-value relative to the lookup endpoint
+      // (which IS auth'd to prevent org-chart enumeration).
       const email = (url.searchParams.get('email') || '').trim();
       const photo = await fetchAzureProfilePhoto(email);
       if (!photo) {
@@ -1597,6 +1871,13 @@ const server = createServer(async (req, res) => {
         return;
       }
 
+      const limit = checkRateLimit('email-send-test', clientIpFor(req), 5, 60_000);
+      if (!limit.ok) {
+        res.setHeader('Retry-After', Math.ceil(limit.retryAfterMs / 1000));
+        sendJson(res, 429, { error: 'Rate limit exceeded for email send-test.' });
+        return;
+      }
+
       const body = (await readJson(req)) || {};
       const to = typeof body.to === 'string' && body.to.includes('@')
         ? body.to.trim()
@@ -1667,6 +1948,12 @@ const server = createServer(async (req, res) => {
         sendJson(res, auth.status, { error: auth.error });
         return;
       }
+      const limit = checkRateLimit('reminders-run', clientIpFor(req), 3, 60_000);
+      if (!limit.ok) {
+        res.setHeader('Retry-After', Math.ceil(limit.retryAfterMs / 1000));
+        sendJson(res, 429, { error: 'Rate limit exceeded for manual reminder runs.' });
+        return;
+      }
       try {
         const summary = await runReminderPass({
           loadLicenses: loadLicensesForScheduler,
@@ -1679,6 +1966,24 @@ const server = createServer(async (req, res) => {
         const message = error instanceof Error ? error.message : 'Reminder pass failed.';
         console.error('[reminders] manual run failed:', message);
         sendJson(res, 502, { error: message });
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/renewal-audit') {
+      const auth = await verifySuperAdmin(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
+      const limitRaw = Number(url.searchParams.get('limit') || '100');
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 500) : 100;
+      try {
+        const { entries, total } = await readRenewalAudit({ limit });
+        sendJson(res, 200, { ok: true, total, entries });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to read renewal audit log';
+        sendJson(res, 500, { error: message });
       }
       return;
     }
@@ -1730,6 +2035,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/profile/lookup') {
+      const auth = await verifyOktaUser(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
       const email = (url.searchParams.get('email') || '').trim();
       const profile = await fetchAzureProfile(email);
       if (!profile) {
@@ -1741,6 +2051,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/licenses') {
+      const auth = await verifyOktaUser(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
       const forceRefresh = url.searchParams.get('refresh') === '1';
       const payload = await resolveLicensesPayload({
         forceRefresh,
@@ -1769,6 +2084,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && /^\/api\/licenses\/[^/]+\/renewal$/.test(url.pathname)) {
+      const auth = await verifyOktaUser(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
+      const limit = checkRateLimit('license-renewal-write', clientIpFor(req), 30, 60_000);
+      if (!limit.ok) {
+        res.setHeader('Retry-After', Math.ceil(limit.retryAfterMs / 1000));
+        sendJson(res, 429, { error: 'Rate limit exceeded for renewal writes.' });
+        return;
+      }
       const itemId = decodeURIComponent(url.pathname.split('/')[3] || '');
       const body = await readJson(req);
       const result = await updateLicenseRenewal(itemId, body?.recordBoardId, {
@@ -1778,7 +2104,7 @@ const server = createServer(async (req, res) => {
         renewalDate: body?.renewalDate,
         seats: body?.seats,
         useCase: body?.useCase,
-      });
+      }, { actorEmail: auth.email });
 
       sendJson(res, 200, result);
       return;
@@ -1797,12 +2123,44 @@ const server = createServer(async (req, res) => {
     sendJson(res, 404, { error: `Route not found: ${req.method} ${url.pathname}` });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
-    sendJson(res, 500, { error: message });
+    const status = error instanceof HttpError ? error.status : 500;
+    if (status >= 500) {
+      logError('request.unhandled', error, {
+        method: req.method,
+        path: req.url,
+      });
+    }
+    sendJson(res, status, { error: message });
   }
 });
 
 server.listen(PORT, () => {
   console.log(`Monday proxy listening on http://localhost:${PORT}`);
+  logInfo('server.started', { port: PORT });
+});
+
+// Crash handlers: log then exit so App Service auto-restart kicks in.
+// Silent recovery would leave the in-process scheduler in an undefined state.
+let shuttingDown = false;
+function gracefulExit(code, reason, error) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logError('server.fatal', error, { reason });
+  // Give logger a tick to flush before exiting.
+  setTimeout(() => process.exit(code), 250).unref?.();
+}
+
+process.on('uncaughtException', (error) => {
+  gracefulExit(1, 'uncaughtException', error);
+});
+process.on('unhandledRejection', (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  gracefulExit(1, 'unhandledRejection', error);
+});
+process.on('SIGTERM', () => {
+  logInfo('server.signal', { signal: 'SIGTERM' });
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref?.();
 });
 
 function resolveReminderRecipientsForLicense(license) {

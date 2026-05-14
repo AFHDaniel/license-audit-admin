@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractEmailFromUserinfo, verifySuperAdmin, clearOktaUserinfoCacheForTest } from './oktaVerify.mjs';
+import { extractEmailFromUserinfo, verifyOktaUser, verifySuperAdmin, clearOktaUserinfoCacheForTest } from './oktaVerify.mjs';
 
 beforeEach(() => {
   process.env.OKTA_ISSUER = 'https://example.okta.com/oauth2/default';
@@ -51,4 +51,36 @@ test('verifySuperAdmin surfaces a 401 when Okta rejects the token', async () => 
   const result = await verifySuperAdmin(req, { fetchImpl: fakeFetch({ status: 401, ok: false }) });
   assert.equal(result.ok, false);
   assert.equal(result.status, 401);
+});
+
+test('verifyOktaUser returns 401 with no bearer token', async () => {
+  const req = { headers: {} } as { headers: Record<string, string> };
+  const result = await verifyOktaUser(req, { fetchImpl: fakeFetch({ status: 200, json: async () => ({ email: 'a@atlantafinehomes.com' }) }) });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 401);
+});
+
+test('verifyOktaUser accepts any email in the AFH domain', async () => {
+  const req = { headers: { authorization: 'Bearer ok' } } as { headers: Record<string, string> };
+  const result = await verifyOktaUser(req, { fetchImpl: fakeFetch({ status: 200, json: async () => ({ email: 'sarah@atlantafinehomes.com' }) }) });
+  assert.equal(result.ok, true);
+  assert.equal(result.email, 'sarah@atlantafinehomes.com');
+});
+
+test('verifyOktaUser rejects emails outside the allowed domain', async () => {
+  const req = { headers: { authorization: 'Bearer ok' } } as { headers: Record<string, string> };
+  const result = await verifyOktaUser(req, { fetchImpl: fakeFetch({ status: 200, json: async () => ({ email: 'attacker@evil.com' }) }) });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 403);
+});
+
+test('verifyOktaUser honors ALLOWED_OKTA_DOMAINS override', async () => {
+  process.env.ALLOWED_OKTA_DOMAINS = 'atlantafinehomes.com,partner.com';
+  try {
+    const req = { headers: { authorization: 'Bearer ok' } } as { headers: Record<string, string> };
+    const result = await verifyOktaUser(req, { fetchImpl: fakeFetch({ status: 200, json: async () => ({ email: 'jess@partner.com' }) }) });
+    assert.equal(result.ok, true);
+  } finally {
+    delete process.env.ALLOWED_OKTA_DOMAINS;
+  }
 });

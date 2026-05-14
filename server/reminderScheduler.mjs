@@ -36,11 +36,18 @@ async function readState() {
 
 async function writeState(state) {
   const filePath = resolveStatePath();
+  // Atomic write: serialize, write to a unique temp file, then rename.
+  // Rename is atomic on POSIX, so a crash mid-write leaves the previous good
+  // file intact (or no state at all on first boot) instead of a partial JSON.
+  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, JSON.stringify(state, null, 2), 'utf8');
+    await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf8');
+    await fs.rename(tmpPath, filePath);
   } catch (error) {
     console.error('[reminders] failed to persist state:', error?.message || error);
+    // Best-effort cleanup; ignore errors here since the rename may not have happened.
+    try { await fs.unlink(tmpPath); } catch { /* swallow */ }
   }
 }
 

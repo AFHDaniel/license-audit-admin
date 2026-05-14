@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAccessTokenProvider } from '../auth/useAccessToken';
 
 export interface PersonProfile {
   email: string;
@@ -24,6 +25,7 @@ const cache = new Map<string, CachedProfile>();
  * Graph is unavailable.
  */
 export function usePersonProfile(email: string | null | undefined): PersonProfile | null {
+  const getAccessToken = useAccessTokenProvider();
   const [profile, setProfile] = useState<PersonProfile | null>(() => {
     if (!email) return null;
     const cached = cache.get(email.toLowerCase());
@@ -51,7 +53,10 @@ export function usePersonProfile(email: string | null | undefined): PersonProfil
     (async () => {
       let resolved: PersonProfile | null = null;
       try {
-        const res = await fetch(`/api/profile/lookup?email=${encodeURIComponent(normalized)}`);
+        const token = await getAccessToken();
+        const headers: Record<string, string> = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const res = await fetch(`/api/profile/lookup?email=${encodeURIComponent(normalized)}`, { headers });
         if (res.ok) {
           const data = await res.json();
           resolved = {
@@ -83,7 +88,7 @@ export function usePersonProfile(email: string | null | undefined): PersonProfil
     })();
 
     return () => { cancelled = true; };
-  }, [email]);
+  }, [email, getAccessToken]);
 
   return profile;
 }

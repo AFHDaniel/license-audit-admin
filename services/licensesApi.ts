@@ -1,5 +1,7 @@
 import { License } from '../types';
 
+export type TokenProvider = () => Promise<string | null> | string | null;
+
 export interface LicensesApiResponse {
   source: 'monday';
   boardName: string | null;
@@ -11,6 +13,7 @@ export interface LicensesApiResponse {
 export interface FetchLicensesOptions {
   signal?: AbortSignal;
   refresh?: boolean;
+  getAccessToken?: TokenProvider;
 }
 
 export interface UpdateLicenseRenewalRequest {
@@ -28,9 +31,29 @@ export interface UpdateLicenseRenewalResponse {
   updated: License | null;
 }
 
+async function resolveToken(provider?: TokenProvider): Promise<string | null> {
+  if (!provider) return null;
+  try {
+    const result = provider();
+    return result instanceof Promise ? await result : result;
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders(token: string | null, extra?: Record<string, string>): HeadersInit {
+  const headers: Record<string, string> = { ...(extra || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
 export async function fetchLicenses(options: FetchLicensesOptions = {}): Promise<LicensesApiResponse> {
   const url = options.refresh ? '/api/licenses?refresh=1' : '/api/licenses';
-  const response = await fetch(url, { signal: options.signal });
+  const token = await resolveToken(options.getAccessToken);
+  const response = await fetch(url, {
+    signal: options.signal,
+    headers: authHeaders(token),
+  });
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => null);
@@ -43,12 +66,12 @@ export async function fetchLicenses(options: FetchLicensesOptions = {}): Promise
 export async function updateLicenseRenewal(
   licenseId: string,
   payload: UpdateLicenseRenewalRequest,
+  options: { getAccessToken?: TokenProvider } = {},
 ): Promise<UpdateLicenseRenewalResponse> {
+  const token = await resolveToken(options.getAccessToken);
   const response = await fetch(`/api/licenses/${encodeURIComponent(licenseId)}/renewal`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: authHeaders(token, { 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),
   });
 

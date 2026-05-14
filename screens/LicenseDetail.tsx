@@ -17,6 +17,7 @@ import {
 } from '@tabler/icons-react';
 import { InventoryFilterPreset, License } from '../types';
 import { updateLicenseRenewal } from '../services/licensesApi';
+import { useAccessTokenProvider } from '../auth/useAccessToken';
 import {
   formatCurrency,
   getAnnualCost,
@@ -79,6 +80,7 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
   onOpenInventory,
   onLicenseUpdated,
 }) => {
+  const getAccessToken = useAccessTokenProvider();
   const [amountInput, setAmountInput] = useState('');
   const [lengthInput, setLengthInput] = useState('');
   const [renewalMethodInput, setRenewalMethodInput] = useState('');
@@ -180,7 +182,7 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
     setSaveError(null);
     setSaveSuccess(null);
     try {
-      await updateLicenseRenewal(license.id, payload);
+      await updateLicenseRenewal(license.id, payload, { getAccessToken });
       setSaveSuccess(`Saved ${changedKeys.join(', ')} to Monday.`);
       onLicenseUpdated?.();
     } catch (error) {

@@ -1,5 +1,5 @@
 
-import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { IconLoader2, IconLock } from '@tabler/icons-react';
 import Sidebar from './components/Sidebar';
@@ -12,10 +12,13 @@ import Inventory from './screens/Inventory';
 import Analytics from './screens/Analytics';
 import ExportReports from './screens/ExportReports';
 import LicenseDetail from './screens/LicenseDetail';
-import Settings from './screens/Settings';
+// Settings is super-admin-only; lazy-load to keep it off the critical path
+// for the typical user who never opens it.
+const Settings = lazy(() => import('./screens/Settings'));
 import { isSuperAdmin } from './auth/superAdmin';
 import { View, License, InventoryFilterPreset } from './types';
 import { fetchLicenses } from './services/licensesApi';
+import { useAccessTokenProvider } from './auth/useAccessToken';
 import { buildGlobalInventoryPreset } from './utils/globalSearchPreset';
 import { buildSuggestionCorpus } from './utils/predictiveSearch';
 import { useScopedLicenses } from './hooks/useScopedLicenses';
@@ -63,6 +66,7 @@ const App: React.FC = () => {
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const { user } = useAuthUser();
+  const getAccessToken = useAccessTokenProvider();
   const realIsAdmin = checkIsAdmin(getDepartmentGrant(user?.email));
   const { scopedLicenses, grant, allowedDepartments, isAdmin, isLoading: scopeLoading, isViewingAs } = useScopedLicenses(licenses, viewAsEmail);
 
@@ -97,7 +101,7 @@ const App: React.FC = () => {
       }
 
       try {
-        const payload = await fetchLicenses({ refresh: forceRefresh });
+        const payload = await fetchLicenses({ refresh: forceRefresh, getAccessToken });
         if (disposed) return;
         setLicenses(payload.licenses);
         setBoardName(payload.boardName);
@@ -116,15 +120,41 @@ const App: React.FC = () => {
     };
 
     void loadFromMonday(true, refreshNonce > 0);
-    const timer = window.setInterval(() => {
-      void loadFromMonday(false, false);
-    }, 30000);
+
+    // Poll while the tab is visible. When the tab is hidden, suspend the
+    // polling interval so we stop burning Monday quota for a backgrounded
+    // tab. When the user comes back, fire one immediate refresh.
+    let timer: number | null = null;
+    const startPolling = () => {
+      if (timer !== null) return;
+      timer = window.setInterval(() => {
+        void loadFromMonday(false, false);
+      }, 30000);
+    };
+    const stopPolling = () => {
+      if (timer === null) return;
+      window.clearInterval(timer);
+      timer = null;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadFromMonday(false, false);
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    if (document.visibilityState === 'visible') {
+      startPolling();
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      stopPolling();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [refreshNonce]);
+  }, [refreshNonce, getAccessToken]);
 
   const refreshLicensesNow = () => {
     setRefreshNonce((current) => current + 1);
@@ -290,7 +320,17 @@ const App: React.FC = () => {
             </div>
           );
         }
-        return <Settings />;
+        return (
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center p-20">
+                <IconLoader2 className="size-8 text-muted-foreground animate-spin" strokeWidth={1.5} />
+              </div>
+            }
+          >
+            <Settings />
+          </Suspense>
+        );
       }
       default:
         return <Dashboard licenses={scopedLicenses} allLicenses={licenses} />;
