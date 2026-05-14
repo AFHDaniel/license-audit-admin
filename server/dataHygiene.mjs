@@ -75,6 +75,12 @@ function coOwnerEmailCount(license) {
   return count;
 }
 
+// Renewal types that intentionally never fire reminders. A license tagged with
+// one of these is OK to have an empty date — it's a deliberate choice, not a
+// data-hygiene issue.
+const NON_FIRING_TYPES = new Set(['Until Cancelled', 'Month-to-month', 'One-time', 'Externally Managed']);
+const FIRING_TYPES = new Set(['Fixed Date', 'Auto-renew']);
+
 /**
  * Audit a list of licenses and return a structured hygiene report.
  * @param {Array<object>} licenses
@@ -87,6 +93,8 @@ export function auditDataHygiene(licenses) {
 
   let withCoOwners = 0;
   let readyToFire = 0;
+  let intentionallySilent = 0;
+  let needsClassification = 0;
   const needsAttention = [];
 
   for (const license of licenses) {
@@ -97,10 +105,21 @@ export function auditDataHygiene(licenses) {
     const hasCoOwner = coOwnerEmailCount(license) > 0;
     if (hasCoOwner) withCoOwners += 1;
 
+    const renewalType = (license.renewalType || '').trim();
+    const isFiring = FIRING_TYPES.has(renewalType);
+    const isNonFiring = NON_FIRING_TYPES.has(renewalType);
     const dateOk = bucket === 'parseable';
-    if (dateOk && hasCoOwner) {
-      readyToFire += 1;
-    } else if (dateOk || hasCoOwner) {
+
+    // Intentionally silent: tagged Until Cancelled / Month-to-month / etc. —
+    // these correctly have no reminders. Don't flag them as broken.
+    if (isNonFiring) {
+      intentionallySilent += 1;
+      continue;
+    }
+
+    // No renewal type set yet (Pending or empty) — needs human classification.
+    if (!isFiring) {
+      needsClassification += 1;
       needsAttention.push({
         id: license.id,
         application: license.application || 'Unnamed',
@@ -111,12 +130,15 @@ export function auditDataHygiene(licenses) {
         hasCoOwner,
         coOwnerCount: coOwnerEmailCount(license),
         amount: license.amount || 0,
-        missing: !dateOk
-          ? (hasCoOwner ? 'date' : 'date+co-owner')
-          : 'co-owner',
+        missing: renewalType === 'Pending' ? 'renewal-type-pending' : 'renewal-type',
       });
+      continue;
+    }
+
+    // Firing type (Fixed Date / Auto-renew): must have date + co-owner.
+    if (dateOk && hasCoOwner) {
+      readyToFire += 1;
     } else {
-      // Missing both — still surface it so users see the highest-leverage rows.
       needsAttention.push({
         id: license.id,
         application: license.application || 'Unnamed',
@@ -124,19 +146,23 @@ export function auditDataHygiene(licenses) {
         renewalDate: license.renewalDate || '',
         dateBucket: bucket,
         dateBucketLabel: BUCKET_LABELS[bucket],
-        hasCoOwner: false,
-        coOwnerCount: 0,
+        hasCoOwner,
+        coOwnerCount: coOwnerEmailCount(license),
         amount: license.amount || 0,
-        missing: 'date+co-owner',
+        missing: !dateOk ? (hasCoOwner ? 'date' : 'date+co-owner') : 'co-owner',
       });
     }
   }
 
-  // Sort: missing both first, then missing date only, then missing co-owner only.
-  // Within each group, biggest spend first (more impact if it lapses).
-  const missingRank = { 'date+co-owner': 0, 'date': 1, 'co-owner': 2 };
+  const missingRank = {
+    'renewal-type': 0,
+    'renewal-type-pending': 1,
+    'date+co-owner': 2,
+    'date': 3,
+    'co-owner': 4,
+  };
   needsAttention.sort((a, b) => {
-    const r = missingRank[a.missing] - missingRank[b.missing];
+    const r = (missingRank[a.missing] ?? 99) - (missingRank[b.missing] ?? 99);
     if (r !== 0) return r;
     return (b.amount || 0) - (a.amount || 0);
   });
@@ -146,6 +172,8 @@ export function auditDataHygiene(licenses) {
     readyToFire,
     withCoOwners,
     withRealDate: buckets.parseable.count,
+    intentionallySilent,
+    needsClassification,
     buckets: Object.values(buckets).sort((a, b) => b.count - a.count),
     needsAttention,
     generatedAt: new Date().toISOString(),

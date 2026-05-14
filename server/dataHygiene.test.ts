@@ -7,6 +7,7 @@ const baseLicense = (over: Record<string, unknown> = {}) => ({
   application: 'X',
   department: 'IT',
   renewalDate: 'Apr 01, 2026',
+  renewalType: 'Fixed Date',
   amount: 1000,
   coOwners: [{ email: 'a@x.com' }],
   ...over,
@@ -51,13 +52,35 @@ test('auditDataHygiene puts highest-spend missing-both rows at the top of needsA
     baseLicense({ id: 'date-only', renewalDate: 'Apr 01, 2026', coOwners: [], amount: 80_000 }),
     baseLicense({ id: 'coowner-only', renewalDate: 'TBD', coOwners: [{ email: 'a@x.com' }], amount: 80_000 }),
   ]);
+  // 'big' / 'small' / 'coowner-only' all have TBD as the renewal date but
+  // renewalType='Fixed Date' from the base fixture, so they fall into
+  // missing-date buckets. 'date-only' has a real date but no co-owner.
+  // missing-rank is date+co-owner (2) < date (3) < co-owner (4).
   assert.equal(result.needsAttention[0].id, 'big');
   assert.equal(result.needsAttention[0].missing, 'date+co-owner');
-  // After missing-both, missing-date-only ('coowner-only' fixture) should rank
-  // above missing-co-owner-only ('date-only' fixture) because date is the more
-  // foundational gap — without it the reminder can never fire on a specific day.
   const order = result.needsAttention.map((r) => r.id);
   assert.deepEqual(order, ['big', 'small', 'coowner-only', 'date-only']);
+});
+
+test('auditDataHygiene reports non-firing types as intentionallySilent, not broken', () => {
+  const result = auditDataHygiene([
+    baseLicense({ id: '1', renewalType: 'Until Cancelled', renewalDate: '' }),
+    baseLicense({ id: '2', renewalType: 'Month-to-month', renewalDate: '' }),
+    baseLicense({ id: '3', renewalType: 'Externally Managed', renewalDate: '' }),
+    baseLicense({ id: '4', renewalType: 'Fixed Date', renewalDate: 'Apr 01, 2026' }),
+  ]);
+  assert.equal(result.intentionallySilent, 3);
+  assert.equal(result.readyToFire, 1);
+  assert.deepEqual(result.needsAttention.map((r) => r.id), []);
+});
+
+test('auditDataHygiene flags licenses missing renewalType as needsClassification', () => {
+  const result = auditDataHygiene([
+    baseLicense({ id: 'untyped', renewalType: '' }),
+    baseLicense({ id: 'pending', renewalType: 'Pending' }),
+  ]);
+  assert.equal(result.needsClassification, 2);
+  assert.deepEqual(result.needsAttention.map((r) => r.missing).sort(), ['renewal-type', 'renewal-type-pending']);
 });
 
 test('auditDataHygiene ignores co-owners without a valid email', () => {
