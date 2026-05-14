@@ -2,6 +2,7 @@ import {
   DomainVerificationStatus,
   EmailLogEntry,
   EmailLogSummary,
+  HygieneReport,
   ReminderRunSummary,
   ReminderState,
 } from '../types';
@@ -84,6 +85,13 @@ export interface DomainStatusResponse {
 export interface DomainStatusError {
   error: string;
   missing?: string[];
+}
+
+export async function fetchHygieneReport(opts: RequestOptions): Promise<HygieneReport> {
+  const res = await authedFetch('/api/data-hygiene', opts);
+  if (!res.ok) throw new Error(await parseError(res, 'Failed to read data-hygiene report'));
+  const body = await res.json();
+  return body as HygieneReport;
 }
 
 export async function fetchReminderState(opts: RequestOptions): Promise<ReminderState> {

@@ -65,6 +65,37 @@ export interface ReminderState {
   lastRunResult: ReminderRunSummary | null;
 }
 
+export interface HygieneBucket {
+  key: string;
+  label: string;
+  severity: 'good' | 'warn' | 'bad' | 'neutral' | string;
+  count: number;
+  sampleIds: string[];
+}
+
+export interface HygieneAttentionRow {
+  id: string;
+  application: string;
+  department: string;
+  renewalDate: string;
+  dateBucket: string;
+  dateBucketLabel: string;
+  hasCoOwner: boolean;
+  coOwnerCount: number;
+  amount: number;
+  missing: 'date' | 'co-owner' | 'date+co-owner';
+}
+
+export interface HygieneReport {
+  total: number;
+  readyToFire: number;
+  withCoOwners: number;
+  withRealDate: number;
+  buckets: HygieneBucket[];
+  needsAttention: HygieneAttentionRow[];
+  generatedAt: string;
+}
+
 export interface DomainVerificationStatus {
   overall: 'Verified' | 'Pending' | 'Failed' | 'Unknown' | string;
   domainName: string;

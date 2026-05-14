@@ -9,16 +9,20 @@ import {
   IconMailForward,
   IconRefresh,
   IconShieldCheck,
+  IconStethoscope,
 } from '@tabler/icons-react';
+import { useNavigate } from 'react-router-dom';
 import {
   DomainVerificationStatus,
   EmailLogEntry,
   EmailLogSummary,
+  HygieneReport,
   ReminderState,
 } from '../types';
 import {
   fetchDomainStatus,
   fetchEmailLog,
+  fetchHygieneReport,
   fetchReminderState,
   runReminderPass,
   sendTestEmail,
@@ -526,8 +530,165 @@ function Stat({ label, value, tone = 'muted' }: StatProps): React.ReactElement {
   );
 }
 
+interface HygienePanelProps {
+  report: HygieneReport | null;
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  onOpenLicense: (id: string) => void;
+}
+
+const hygieneSeverityClasses: Record<string, string> = {
+  good: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
+  warn: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
+  bad: 'bg-destructive/15 text-destructive border-destructive/30',
+  neutral: 'bg-muted text-muted-foreground border-border',
+};
+
+function HygienePanel({ report, loading, error, onRefresh, onOpenLicense }: HygienePanelProps): React.ReactElement {
+  const [showAll, setShowAll] = useState(false);
+  const rows = report?.needsAttention || [];
+  const visible = showAll ? rows : rows.slice(0, 12);
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-5">
+      <header className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <IconStethoscope size={18} className="text-sidebar-primary" />
+          <h2 className="text-sm font-semibold text-foreground">Data health</h2>
+        </div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border border-border hover:bg-secondary disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {loading ? <IconLoader2 size={12} className="animate-spin" /> : <IconRefresh size={12} />}
+          Refresh
+        </button>
+      </header>
+
+      {error && (
+        <div className="mb-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] text-destructive">
+          <IconAlertCircle size={14} className="mt-0.5 shrink-0" />
+          <div>{error}</div>
+        </div>
+      )}
+
+      {!report && !error && (
+        <p className="text-[12px] text-muted-foreground">
+          {loading ? 'Auditing every license against the reminder requirements…' : 'No report yet — click Refresh.'}
+        </p>
+      )}
+
+      {report && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[12px]">
+            <Stat label="Total licenses" value={report.total} />
+            <Stat label="Ready to fire" value={report.readyToFire} tone="good" />
+            <Stat label="Real date" value={report.withRealDate} />
+            <Stat label="With co-owners" value={report.withCoOwners} />
+          </div>
+
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
+              Renewal-date column buckets
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {report.buckets.filter((b) => b.count > 0).map((b) => (
+                <span
+                  key={b.key}
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide ${hygieneSeverityClasses[b.severity] || hygieneSeverityClasses.neutral}`}
+                  title={`${b.count} record(s)`}
+                >
+                  {b.label}
+                  <span className="font-bold tabular-nums">{b.count}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {rows.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Records that won't fire reminders ({rows.length})
+                </div>
+                {rows.length > 12 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAll((v) => !v)}
+                    className="text-[11px] text-sidebar-primary hover:underline"
+                  >
+                    {showAll ? 'Show top 12' : `Show all ${rows.length}`}
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <th className="py-2 pr-3 font-medium">Application</th>
+                      <th className="py-2 pr-3 font-medium">Dept</th>
+                      <th className="py-2 pr-3 font-medium">Renewal date in Monday</th>
+                      <th className="py-2 pr-3 font-medium">Missing</th>
+                      <th className="py-2 pr-3 font-medium text-right">Amount</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((row) => (
+                      <tr key={row.id} className="border-t border-border align-top">
+                        <td className="py-2 pr-3 font-medium">{row.application}</td>
+                        <td className="py-2 pr-3 text-muted-foreground">{row.department || '—'}</td>
+                        <td className="py-2 pr-3">
+                          <span className="font-mono text-[11px] text-muted-foreground">{row.renewalDate || '(empty)'}</span>
+                          <span className="ml-2 text-[10px] text-muted-foreground">{row.dateBucketLabel}</span>
+                        </td>
+                        <td className="py-2 pr-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide ${
+                            row.missing === 'date+co-owner'
+                              ? hygieneSeverityClasses.bad
+                              : row.missing === 'date'
+                                ? hygieneSeverityClasses.warn
+                                : hygieneSeverityClasses.neutral
+                          }`}>
+                            {row.missing === 'date+co-owner' ? 'date + co-owner' : row.missing}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
+                          {row.amount > 0 ? `$${row.amount.toLocaleString()}` : '—'}
+                        </td>
+                        <td className="py-2">
+                          <button
+                            type="button"
+                            onClick={() => onOpenLicense(row.id)}
+                            className="text-[11px] text-sidebar-primary hover:underline"
+                          >
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <p className="text-[10px] text-muted-foreground">
+            A license can only trigger reminders if its Renewal Date parses as a real date AND it has at least one
+            co-owner with a usable email. Edit either field on the license detail page to fix it.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 const Settings: React.FC = () => {
   const getAccessToken = useAccessTokenProvider();
+  const navigate = useNavigate();
   const [status, setStatus] = useState<DomainVerificationStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -542,8 +703,12 @@ const Settings: React.FC = () => {
   const [reminderRunning, setReminderRunning] = useState(false);
   const [reminderError, setReminderError] = useState<string | null>(null);
 
+  const [hygiene, setHygiene] = useState<HygieneReport | null>(null);
+  const [hygieneLoading, setHygieneLoading] = useState(true);
+  const [hygieneError, setHygieneError] = useState<string | null>(null);
+
   const toast = useToast();
-  const abortRefs = useRef<{ status?: AbortController; log?: AbortController; reminders?: AbortController }>({});
+  const abortRefs = useRef<{ status?: AbortController; log?: AbortController; reminders?: AbortController; hygiene?: AbortController }>({});
 
   const loadStatus = useCallback(async () => {
     abortRefs.current.status?.abort();
@@ -618,16 +783,35 @@ const Settings: React.FC = () => {
     }
   }, [getAccessToken, loadLog, toast]);
 
+  const loadHygiene = useCallback(async () => {
+    abortRefs.current.hygiene?.abort();
+    const controller = new AbortController();
+    abortRefs.current.hygiene = controller;
+    setHygieneLoading(true);
+    setHygieneError(null);
+    try {
+      const result = await fetchHygieneReport({ getAccessToken, signal: controller.signal });
+      setHygiene(result);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setHygieneError(error instanceof Error ? error.message : 'Failed to read data-hygiene report.');
+    } finally {
+      if (!controller.signal.aborted) setHygieneLoading(false);
+    }
+  }, [getAccessToken]);
+
   useEffect(() => {
     void loadStatus();
     void loadLog();
     void loadReminders();
+    void loadHygiene();
     return () => {
       abortRefs.current.status?.abort();
       abortRefs.current.log?.abort();
       abortRefs.current.reminders?.abort();
+      abortRefs.current.hygiene?.abort();
     };
-  }, [loadStatus, loadLog, loadReminders]);
+  }, [loadStatus, loadLog, loadReminders, loadHygiene]);
 
   const defaultRecipient = useMemo(() => getSuperAdminEmail(), []);
 
@@ -660,6 +844,14 @@ const Settings: React.FC = () => {
         error={reminderError}
         onRefresh={() => void loadReminders()}
         onRun={() => void runReminders()}
+      />
+
+      <HygienePanel
+        report={hygiene}
+        loading={hygieneLoading}
+        error={hygieneError}
+        onRefresh={() => void loadHygiene()}
+        onOpenLicense={(id) => navigate(`/license/${id}`)}
       />
 
       <LogPanel

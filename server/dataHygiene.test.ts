@@ -1,0 +1,71 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { auditDataHygiene } from './dataHygiene.mjs';
+
+const baseLicense = (over: Record<string, unknown> = {}) => ({
+  id: 'lic',
+  application: 'X',
+  department: 'IT',
+  renewalDate: 'Apr 01, 2026',
+  amount: 1000,
+  coOwners: [{ email: 'a@x.com' }],
+  ...over,
+});
+
+test('auditDataHygiene flags a license with a real date and an email as ready', () => {
+  const result = auditDataHygiene([baseLicense()]);
+  assert.equal(result.total, 1);
+  assert.equal(result.readyToFire, 1);
+  assert.equal(result.withCoOwners, 1);
+  assert.equal(result.withRealDate, 1);
+  assert.deepEqual(result.needsAttention, []);
+});
+
+test('auditDataHygiene buckets renewal-date strings correctly', () => {
+  const result = auditDataHygiene([
+    baseLicense({ id: '1', renewalDate: 'Apr 01, 2026' }),
+    baseLicense({ id: '2', renewalDate: 'TBD' }),
+    baseLicense({ id: '3', renewalDate: 'n/a' }),
+    baseLicense({ id: '4', renewalDate: 'Until Cancelled' }),
+    baseLicense({ id: '5', renewalDate: 'month to month' }),
+    baseLicense({ id: '6', renewalDate: '' }),
+    baseLicense({ id: '7', renewalDate: 'June & November' }),
+    baseLicense({ id: '8', renewalDate: '11/2026' }),
+  ]);
+  const counts: Record<string, number> = {};
+  for (const b of result.buckets) counts[b.key] = b.count;
+  assert.equal(counts.parseable, 1);
+  assert.equal(counts.tbd, 1);
+  assert.equal(counts.na, 1);
+  assert.equal(counts.untilCancelled, 1);
+  assert.equal(counts.monthToMonth, 1);
+  assert.equal(counts.empty, 1);
+  assert.equal(counts.unstructured, 1);
+  assert.equal(counts.monthYearOnly, 1);
+});
+
+test('auditDataHygiene puts highest-spend missing-both rows at the top of needsAttention', () => {
+  const result = auditDataHygiene([
+    baseLicense({ id: 'small', renewalDate: 'TBD', coOwners: [], amount: 500 }),
+    baseLicense({ id: 'big', renewalDate: 'TBD', coOwners: [], amount: 100_000 }),
+    baseLicense({ id: 'date-only', renewalDate: 'Apr 01, 2026', coOwners: [], amount: 80_000 }),
+    baseLicense({ id: 'coowner-only', renewalDate: 'TBD', coOwners: [{ email: 'a@x.com' }], amount: 80_000 }),
+  ]);
+  assert.equal(result.needsAttention[0].id, 'big');
+  assert.equal(result.needsAttention[0].missing, 'date+co-owner');
+  // After missing-both, missing-date-only ('coowner-only' fixture) should rank
+  // above missing-co-owner-only ('date-only' fixture) because date is the more
+  // foundational gap — without it the reminder can never fire on a specific day.
+  const order = result.needsAttention.map((r) => r.id);
+  assert.deepEqual(order, ['big', 'small', 'coowner-only', 'date-only']);
+});
+
+test('auditDataHygiene ignores co-owners without a valid email', () => {
+  const result = auditDataHygiene([
+    baseLicense({ id: '1', coOwners: [{ name: 'Beth' }] }),
+    baseLicense({ id: '2', coOwners: [{ email: 'not-an-email' }] }),
+    baseLicense({ id: '3', coOwners: [{ email: 'good@x.com' }] }),
+  ]);
+  assert.equal(result.withCoOwners, 1);
+  assert.equal(result.readyToFire, 1);
+});

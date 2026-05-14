@@ -13,6 +13,7 @@ import {
   startReminderInterval,
 } from './reminderScheduler.mjs';
 import { renderAdminTest, renderRenewalReminder } from './emailTemplate.mjs';
+import { auditDataHygiene } from './dataHygiene.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -1645,6 +1646,23 @@ const server = createServer(async (req, res) => {
         const message = error instanceof Error ? error.message : 'Reminder pass failed.';
         console.error('[reminders] manual run failed:', message);
         sendJson(res, 502, { error: message });
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/data-hygiene') {
+      const auth = await verifySuperAdmin(req);
+      if (!auth.ok) {
+        sendJson(res, auth.status, { error: auth.error });
+        return;
+      }
+      try {
+        const payload = await resolveLicensesPayload({ reason: 'hygiene-audit' });
+        const audit = auditDataHygiene(payload?.licenses || []);
+        sendJson(res, 200, { ok: true, ...audit });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Hygiene audit failed.';
+        sendJson(res, 500, { error: message });
       }
       return;
     }
