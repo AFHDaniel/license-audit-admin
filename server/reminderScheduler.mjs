@@ -67,10 +67,21 @@ export function daysUntilDate(renewalDate, now = new Date()) {
   return Math.round((startOfTarget - startOfToday) / DAY_MS);
 }
 
+// Renewal types that should never trigger reminders, even when a date is set.
+// Kept in sync with NON_FIRING_RENEWAL_TYPES in mondayProxy.mjs.
+const NON_FIRING_TYPES = new Set([
+  'Until Cancelled',
+  'Month-to-month',
+  'One-time',
+  'Externally Managed',
+  'Pending',
+]);
+
 export function selectLicensesForReminder(licenses, triggerDays, now = new Date()) {
   const triggerSet = new Set(triggerDays);
   const matches = [];
   for (const license of licenses) {
+    if (license.renewalType && NON_FIRING_TYPES.has(license.renewalType)) continue;
     const days = daysUntilDate(license.renewalDate, now);
     if (days == null) continue;
     if (!triggerSet.has(days)) continue;

@@ -110,7 +110,12 @@ const COLUMN_ID_MAP = {
   amount: process.env.MONDAY_AMOUNT_COLUMN_ID || 'numeric_mkzv7frm',
   length: process.env.MONDAY_LENGTH_COLUMN_ID || 'text_mkzvze3c',
   renewalMethod: process.env.MONDAY_RENEWAL_METHOD_COLUMN_ID || 'text_mkzv6trx',
-  renewalDate: process.env.MONDAY_RENEWAL_DATE_COLUMN_ID || 'text_mkzvze62',
+  // Legacy free-text "Renewal Date" — still read as a fallback when the new
+  // structured columns are empty. Migrated 2026-05-14 to Next Renewal (date).
+  renewalDateLegacy: process.env.MONDAY_RENEWAL_DATE_LEGACY_COLUMN_ID || 'text_mkzvze62',
+  // New canonical structured renewal data.
+  nextRenewal: process.env.MONDAY_NEXT_RENEWAL_COLUMN_ID || '',
+  renewalType: process.env.MONDAY_RENEWAL_TYPE_COLUMN_ID || '',
   seats: process.env.MONDAY_SEATS_COLUMN_ID || 'text_mm02ecnv',
   useCase: process.env.MONDAY_USE_CASE_COLUMN_ID || 'text_mkzv7n7',
   coOwners: process.env.MONDAY_CO_OWNERS_COLUMN_ID || '',
@@ -120,11 +125,22 @@ const COLUMN_TITLE_ALIASES = {
   amount: ['Amount', 'Price', 'Cost', 'Annual Cost', 'Monthly Cost', 'Spend', 'Cost Amount'],
   length: ['Length', 'Term', 'Contract Length', 'Contract Term', 'Billing Cycle', 'Frequency'],
   renewalMethod: ['Renewal Method', 'Payment Method', 'Payment Type', 'Billing Method', 'Payment'],
-  renewalDate: ['Renewal Date', 'Renew Date', 'Next Renewal', 'Renews On', 'Expiration Date', 'Expiry Date', 'End Date', 'Contract End'],
+  renewalDateLegacy: ['Renewal Date', 'Renew Date', 'Renews On', 'Expiration Date', 'Expiry Date', 'End Date', 'Contract End'],
+  nextRenewal: ['Next Renewal'],
+  renewalType: ['Renewal Type'],
   seats: ['Seats', 'Licenses', 'Seat Count', 'License Count', 'Quantity', 'Qty'],
   useCase: ['Use Case', 'Usecase', 'Purpose', 'Description', 'Business Use', 'Function'],
-  coOwners: ['Co-Owners', 'Co Owners', 'Owners', 'Owner', 'Other Owners', 'Other Owner', 'Shared Owners', 'Managers', 'Application Owners'],
+  coOwners: ['Owner(s)', 'Co-Owners', 'Co Owners', 'Owners', 'Owner', 'Other Owners', 'Other Owner', 'Shared Owners', 'Managers', 'Application Owners'],
 };
+
+// Renewal Type values that should NEVER trigger reminders even if a date is set.
+const NON_FIRING_RENEWAL_TYPES = new Set([
+  'Until Cancelled',
+  'Month-to-month',
+  'One-time',
+  'Externally Managed',
+  'Pending',
+]);
 
 const BOARD_ITEMS_QUERY = `
   query GetBoardItems($boardIds: [ID!]) {
@@ -759,24 +775,35 @@ function getAmount(columns) {
   return parseAmount(column.text);
 }
 
-function getRenewalDateRaw(columns) {
-  const column = getMappedColumn(columns, 'renewalDate');
-  if (!column) {
-    return '';
-  }
-
+function readColumnDate(column) {
+  if (!column) return '';
   const raw = column.value;
-  if (typeof raw === 'string') {
-    return raw.trim();
-  }
-
+  if (typeof raw === 'string') return raw.trim();
   if (raw && typeof raw === 'object') {
     if (typeof raw.date === 'string' && raw.date) return raw.date;
     if (typeof raw.from === 'string' && raw.from) return raw.from;
     if (typeof raw.value === 'string' && raw.value) return raw.value;
   }
-
   return (column.text || '').trim();
+}
+
+function getRenewalDateRaw(columns) {
+  // Prefer the new structured "Next Renewal" date column. Fall back to the
+  // legacy free-text "Renewal Date" only when the new one is empty so we
+  // don't lose visibility on records that haven't been migrated yet.
+  const nextRenewal = readColumnDate(getMappedColumn(columns, 'nextRenewal'));
+  if (nextRenewal) return nextRenewal;
+  return readColumnDate(getMappedColumn(columns, 'renewalDateLegacy'));
+}
+
+function getRenewalType(columns) {
+  const column = getMappedColumn(columns, 'renewalType');
+  if (!column) return '';
+  // Status columns expose the label as `text` and `{label}` in value JSON.
+  if (column.text && column.text.trim()) return column.text.trim();
+  const raw = column.value;
+  if (raw && typeof raw === 'object' && typeof raw.label === 'string') return raw.label;
+  return '';
 }
 
 function normalizeLengthText(value) {
@@ -1024,6 +1051,7 @@ function mapMondayItem(item, options = {}) {
     length: getLengthText(columns),
     renewalMethod: normalizeRenewalMethod(renewalMethodColumn ? getColumnText(columns, renewalMethodColumn.id) : ''),
     renewalDate: formatDateDisplay(renewalText),
+    renewalType: getRenewalType(columns),
     seats,
     useCase,
     progress: deriveProgress(daysRemaining),

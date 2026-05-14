@@ -38,6 +38,21 @@ test('selectLicensesForReminder picks only licenses whose days match a trigger',
   assert.deepEqual(result.map((r) => r.license.id).sort(), ['a', 'c']);
 });
 
+test('selectLicensesForReminder skips licenses with non-firing renewal types', () => {
+  const now = new Date('2026-05-13T18:00:00Z');
+  const licenses = [
+    { id: 'fire', renewalDate: isoDaysFromNow(30, now), renewalType: 'Fixed Date' },
+    { id: 'autoRenew', renewalDate: isoDaysFromNow(30, now), renewalType: 'Auto-renew' },
+    { id: 'untilCancelled', renewalDate: isoDaysFromNow(30, now), renewalType: 'Until Cancelled' },
+    { id: 'monthly', renewalDate: isoDaysFromNow(30, now), renewalType: 'Month-to-month' },
+    { id: 'oneTime', renewalDate: isoDaysFromNow(30, now), renewalType: 'One-time' },
+    { id: 'msp', renewalDate: isoDaysFromNow(30, now), renewalType: 'Externally Managed' },
+    { id: 'pending', renewalDate: isoDaysFromNow(30, now), renewalType: 'Pending' },
+  ];
+  const result = selectLicensesForReminder(licenses as never[], [30], now);
+  assert.deepEqual(result.map((r) => r.license.id).sort(), ['autoRenew', 'fire']);
+});
+
 test('selectLicensesForReminder fires on negative days for overdue escalations', () => {
   const now = new Date('2026-05-13T18:00:00Z');
   const licenses = [

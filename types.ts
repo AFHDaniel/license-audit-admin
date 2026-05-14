@@ -120,6 +120,7 @@ export interface License {
   length: string;
   renewalMethod: 'Manual' | 'ACH' | 'Credit Card' | string;
   renewalDate: string;
+  renewalType?: 'Fixed Date' | 'Auto-renew' | 'Month-to-month' | 'Until Cancelled' | 'One-time' | 'Externally Managed' | 'Pending' | string;
   seats: string;
   useCase: string;
   progress: number;
