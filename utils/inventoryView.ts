@@ -11,6 +11,7 @@ import {
   getLicenseBillingCadence,
   getMonthlyCost,
   isAutoRenewalMethod,
+  isUndatedByDesign,
 } from './licenseMetrics';
 
 export type InventorySortField =
@@ -146,7 +147,10 @@ export function filterAndSortLicenses(licenses: License[], state: InventoryViewS
       if (state.quickFilter === 'MANUAL' && methodNormalized !== 'manual') return false;
 
       if (state.selectedRenewalWindow !== 'ALL') {
-        if (state.selectedRenewalWindow === 'NO_DATE' && days !== null) return false;
+        // NO_DATE means "genuinely missing a date" — exclude licenses that are
+        // date-less by design (until-cancelled, managed-by, etc.) so the
+        // drilldown matches the Dashboard "missing date" count.
+        if (state.selectedRenewalWindow === 'NO_DATE' && (days !== null || isUndatedByDesign(license))) return false;
         if (state.selectedRenewalWindow === 'OVERDUE' && !(days != null && days < 0)) return false;
         if (state.selectedRenewalWindow === 'UPCOMING_30' && !(days != null && days >= 0 && days <= 30)) return false;
         if (state.selectedRenewalWindow === 'UPCOMING_90' && !(days != null && days >= 0 && days <= 90)) return false;

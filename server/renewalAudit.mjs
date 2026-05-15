@@ -45,6 +45,9 @@ async function rotateIfNeeded(filePath) {
  *   requested   - raw fields the client asked us to write
  *   before      - normalized snapshot of the license before the write
  *   after       - normalized snapshot of the license after the write
+ *
+ * @param {object} input
+ * @param {{ filePath?: string }} [options]
  */
 export async function appendRenewalAuditEntry(input, options = {}) {
   const filePath = options.filePath || resolveAuditPath();
@@ -67,6 +70,10 @@ export async function appendRenewalAuditEntry(input, options = {}) {
   return entry;
 }
 
+/**
+ * Read the most recent renewal-audit entries (newest first).
+ * @param {{ limit?: number, filePath?: string }} [options]
+ */
 export async function readRenewalAudit({ limit = 100, filePath } = {}) {
   const resolved = filePath || resolveAuditPath();
   let content = '';

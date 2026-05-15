@@ -67,6 +67,32 @@ export function getDaysUntilRenewal(license: License): number | null {
   return Math.round(diffMs / (24 * 60 * 60 * 1000));
 }
 
+// Renewal-date values that mean "no fixed renewal date by design" — the app
+// runs until cancelled, bills month-to-month, or is managed by an outside
+// party. These legitimately have no date and must NOT be counted as a missing
+// date. The text lives in the Monday Renewal Date field itself (free text),
+// so `formatDateDisplay` passes it through unparsed into `license.renewalDate`.
+const UNDATED_BY_DESIGN_PATTERNS = [
+  'until cancel',       // "Until Cancelled" and "Until Canceled"
+  'managed by',         // "Managed by Cortago" — any external manager
+  'externally managed',
+  'ongoing',
+  'continuous',
+  'month to month',
+  'month-to-month',
+];
+
+/**
+ * True when the license has no renewal date *on purpose* (until-cancelled,
+ * month-to-month, externally managed, etc.) rather than because the date is
+ * genuinely missing. Used to keep these off the "missing date" surfaces.
+ */
+export function isUndatedByDesign(license: License): boolean {
+  const raw = String(license.renewalDate || '').trim().toLowerCase();
+  if (!raw) return false;
+  return UNDATED_BY_DESIGN_PATTERNS.some((pattern) => raw.includes(pattern));
+}
+
 function normalizeDepartmentKey(value: string): string {
   return String(value || '').trim().toLowerCase();
 }

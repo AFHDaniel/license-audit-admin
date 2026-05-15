@@ -108,3 +108,21 @@ test('filterAndSortLicenses applies ascending and descending amount sorting', ()
   assert.deepEqual(ascResult.map((license) => license.id), ['2', '3', '1']);
   assert.deepEqual(descResult.map((license) => license.id), ['1', '3', '2']);
 });
+
+test('NO_DATE filter excludes licenses that are undated by design', () => {
+  const withSpecialDates: License[] = [
+    { ...licenses[0], id: 'genuinely-blank', renewalDate: 'TBD' },
+    { ...licenses[0], id: 'until-cancelled', renewalDate: 'Until Cancelled' },
+    { ...licenses[0], id: 'managed', renewalDate: 'Managed by Cortago' },
+    { ...licenses[0], id: 'has-date', renewalDate: '2026-08-31' },
+  ];
+
+  const result = filterAndSortLicenses(withSpecialDates, {
+    ...DEFAULT_INVENTORY_VIEW_STATE,
+    selectedRenewalWindow: 'NO_DATE',
+  });
+
+  // Only the genuinely-blank row should match — the by-design rows and the
+  // row with a real date are excluded.
+  assert.deepEqual(result.map((license) => license.id), ['genuinely-blank']);
+});

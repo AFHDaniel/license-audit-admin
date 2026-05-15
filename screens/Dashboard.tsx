@@ -15,6 +15,7 @@ import {
   getPendingRenewalsCount,
   getTotalAnnualCost,
   getTotalMonthlyCost,
+  isUndatedByDesign,
 } from '../utils/licenseMetrics';
 
 interface DashboardProps {
@@ -93,7 +94,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     [licenses],
   );
   const noDateCount = useMemo(
-    () => licenses.filter((l) => getDaysUntilRenewal(l) == null).length,
+    () => licenses.filter((l) => getDaysUntilRenewal(l) == null && !isUndatedByDesign(l)).length,
     [licenses],
   );
 

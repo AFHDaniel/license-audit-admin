@@ -14,12 +14,24 @@ const NON_DATE_KEYWORDS = {
   empty: ['', null, undefined],
   na: ['n/a', 'na', 'none', '-'],
   tbd: ['tbd', 'tba', '?', 'pending'],
-  monthToMonth: ['month to month', 'm2m', 'monthly'],
+  monthToMonth: ['month to month', 'month-to-month', 'm2m', 'monthly'],
   untilCancelled: ['until cancelled', 'until canceled', 'ongoing', 'continuous'],
+  externallyManaged: ['managed by', 'externally managed'],
 };
 
 function normalize(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+// Whole-word / whole-phrase match. Plain substring matching is unsafe here:
+// a short token like "na" would match inside "managed" or "annual" and
+// mis-bucket the row. Anchoring on non-alphanumeric boundaries fixes that
+// while still matching multi-word phrases like "managed by".
+function matchesKeyword(norm, keyword) {
+  if (!keyword) return false;
+  if (norm === keyword) return true;
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(norm);
 }
 
 function classifyDate(rawValue) {
@@ -29,7 +41,7 @@ function classifyDate(rawValue) {
   const norm = normalize(value);
   for (const [bucket, hits] of Object.entries(NON_DATE_KEYWORDS)) {
     if (bucket === 'empty') continue;
-    if (hits.some((h) => norm === h || norm.includes(h))) return bucket;
+    if (hits.some((h) => matchesKeyword(norm, h))) return bucket;
   }
 
   // ISO `YYYY-MM-DD`
@@ -51,6 +63,7 @@ const BUCKET_LABELS = {
   tbd: 'Marked TBD',
   monthToMonth: 'Month-to-month',
   untilCancelled: 'Until cancelled',
+  externallyManaged: 'Externally managed',
   monthYearOnly: 'Month/year only (no day)',
   unstructured: 'Free-text — needs cleanup',
 };
@@ -62,6 +75,7 @@ const BUCKET_SEVERITY = {
   tbd: 'warn',
   monthToMonth: 'neutral',
   untilCancelled: 'neutral',
+  externallyManaged: 'neutral',
   monthYearOnly: 'warn',
   unstructured: 'warn',
 };
@@ -109,10 +123,17 @@ export function auditDataHygiene(licenses) {
     const isFiring = FIRING_TYPES.has(renewalType);
     const isNonFiring = NON_FIRING_TYPES.has(renewalType);
     const dateOk = bucket === 'parseable';
+    // A renewal-date field that literally reads "until cancelled", "managed
+    // by <vendor>", "month-to-month" etc. is itself proof the license has no
+    // fixed renewal — treat it as intentionally silent even when the Renewal
+    // Type column is left blank.
+    const dateBucketIsNonFiring =
+      bucket === 'untilCancelled' || bucket === 'monthToMonth' || bucket === 'externallyManaged';
 
-    // Intentionally silent: tagged Until Cancelled / Month-to-month / etc. —
-    // these correctly have no reminders. Don't flag them as broken.
-    if (isNonFiring) {
+    // Intentionally silent: tagged Until Cancelled / Month-to-month / etc., or
+    // the date field itself says so — these correctly have no reminders.
+    // Don't flag them as broken.
+    if (isNonFiring || dateBucketIsNonFiring) {
       intentionallySilent += 1;
       continue;
     }

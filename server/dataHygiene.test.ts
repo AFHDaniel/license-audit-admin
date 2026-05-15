@@ -92,3 +92,24 @@ test('auditDataHygiene ignores co-owners without a valid email', () => {
   assert.equal(result.withCoOwners, 1);
   assert.equal(result.readyToFire, 1);
 });
+
+test('auditDataHygiene treats "Managed by <vendor>" in the date field as intentionally silent', () => {
+  const result = auditDataHygiene([
+    baseLicense({ id: 'cortago', renewalType: '', renewalDate: 'Managed by Cortago' }),
+    baseLicense({ id: 'until-cancel', renewalType: '', renewalDate: 'Until Canceled' }),
+  ]);
+  // Neither should be flagged as needing attention or classification.
+  assert.equal(result.intentionallySilent, 2);
+  assert.equal(result.needsClassification, 0);
+  assert.equal(result.needsAttention.length, 0);
+});
+
+test('auditDataHygiene buckets "Managed by Cortago" as externallyManaged (neutral), not unstructured', () => {
+  const result = auditDataHygiene([
+    baseLicense({ id: 'cortago', renewalType: '', renewalDate: 'Managed by Cortago' }),
+  ]);
+  const byKey = Object.fromEntries(result.buckets.map((b) => [b.key, b]));
+  assert.equal(byKey.externallyManaged.count, 1);
+  assert.equal(byKey.externallyManaged.severity, 'neutral');
+  assert.equal(byKey.unstructured.count, 0);
+});
