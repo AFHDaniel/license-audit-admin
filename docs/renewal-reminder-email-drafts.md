@@ -1,7 +1,7 @@
 # Renewal Reminder Emails - Draft Copy for Review
 
-**Status:** DRAFT - wording only. Not wired into the send pipeline yet.
-**For:** Sarah's review before anything goes out.
+**Status:** Shipped - this wording is live in `server/emailTemplate.mjs` and the scheduler.
+**For:** Record of the copy reviewed against the May 15 meeting.
 **Source:** May 15, 2026 review meeting.
 
 ---
@@ -10,12 +10,12 @@
 
 The tracker already has a working renewal-reminder email system (branded template,
 scheduler, send log, ACS delivery). What Sarah asked for is a **wording change** - the
-current single template is urgency-styled but generic. She wants five distinct, more
+current single template is urgency-styled but generic. She wanted four distinct, more
 *proactive* messages that help department heads get ahead of renewals and offer them
 help with negotiation.
 
-These are drafts so Sarah can redline the copy. Once she signs off, the wording gets
-folded into `server/emailTemplate.mjs` and the scheduler's trigger days are adjusted.
+This wording is now live in `server/emailTemplate.mjs`; the scheduler fires the four
+stages at 90 / 60 / 30 days before renewal and on the renewal date itself.
 
 ## Trigger plan (for context - not active yet)
 
@@ -25,14 +25,12 @@ folded into `server/emailTemplate.mjs` and the scheduler's trigger days are adju
 | 60-day | 60 days before renewal date | Once |
 | 30-day | 30 days before renewal date | Once |
 | Expiration day | On the renewal date | Once |
-| Post-expiration | Renewal date has passed, record not updated | Every 30 days until updated |
 
 - **Recipients:** the application's co-owner(s) from Monday. (There is no separate
   single "owner" field - co-owner *is* how ownership is modeled. Flagging in case
   Sarah expects a distinct owner.)
-- Apps flagged **"Term Information Missing"** (see in-app fixes) are stale by
-  definition - proposal is they receive the Expiration / Post-expiration email so the
-  data gets corrected. Confirm with Sarah.
+- **No post-expiration reminders.** Staff close renewals before they lapse, so the
+  cadence stops at the renewal-date email - nothing fires after a date has passed.
 
 ## Fields every email pulls from the record
 
@@ -42,7 +40,7 @@ renewal date · a link straight to that record in the tracker.
 > Note: the current template shows a single "Amount on file." Sarah asked to show what
 > they're *currently paying*, so these drafts show **monthly + annual** explicitly.
 
-## Shared "how to update" block (appears in all five)
+## Shared "how to update" block (appears in all four)
 
 > **Update it in under a minute:**
 > 1. Open the Application Tracker → [link to this record]
@@ -166,40 +164,8 @@ reporting accurate.
 
 ---
 
-# 5 - Post-Expiration (monthly until updated)
-
-**Subject:** Still need an update on {{appName}}
-
-Hi {{recipientName}},
-
-We're still showing **{{appName}}** as past its renewal date (**{{renewalDate}}**) with
-no updated information. This is a monthly reminder until the record is refreshed.
-
-On file:
-
-- **Application:** {{appName}} ({{vendor}})
-- **Term:** {{term}}
-- **Cost:** {{monthlyCost}}/mo · {{annualCost}}/yr
-
-As the owner of this application, you're our source of truth for it. A current record
-helps the whole company see what we use and what we spend - and lets us support you
-when it's time to renew. We're trusting you to keep this one accurate on the company's
-behalf.
-
-It only takes a minute:
-
-*[how-to-update block]*
-
-If this application is no longer in use, just reply and we'll remove it.
-
----
-
 ## Open questions for Sarah
 
-1. Sign-off on tone and wording for each of the five.
-2. Should the Post-expiration email really repeat **monthly forever**, or stop after
-   a few cycles (e.g. 3) and escalate to the department head instead?
-3. Recipients are co-owner(s) only - is that the right audience, or should it also
+1. Sign-off on tone and wording for each of the four.
+2. Recipients are co-owner(s) only - is that the right audience, or should it also
    copy the department head?
-4. OK to also send the Expiration / Post-expiration email to apps that are missing
-   their renewal/term info entirely?
