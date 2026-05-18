@@ -20,7 +20,6 @@ import {
 
 interface DashboardProps {
   licenses: License[];
-  allLicenses?: License[];
   onNavigateInventory?: (preset: InventoryFilterPreset) => void;
   onSelectLicense?: (license: License) => void;
   onOpenDepartmentAnalytics?: (departmentName: string) => void;
@@ -58,7 +57,6 @@ const StatCard: React.FC<StatCardProps> = ({ label, value, subtitle, icon, onCli
 
 const Dashboard: React.FC<DashboardProps> = ({
   licenses,
-  allLicenses,
   onNavigateInventory,
   onSelectLicense,
   onOpenDepartmentAnalytics,
@@ -66,9 +64,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   const totalMonthly = useMemo(() => getTotalMonthlyCost(licenses), [licenses]);
   const totalAnnual = useMemo(() => getTotalAnnualCost(licenses), [licenses]);
   const pending30 = useMemo(() => getPendingRenewalsCount(licenses, 30), [licenses]);
+  // Spend by Department mirrors the scoping every other dashboard widget uses:
+  // non-admins see only their own department(s); admins receive the full list
+  // via useScopedLicenses, so `licenses` is already the right set for both.
   const departmentData = useMemo(
-    () => getDepartmentSpendData(allLicenses || licenses),
-    [allLicenses, licenses],
+    () => getDepartmentSpendData(licenses),
+    [licenses],
   );
   const renewingSoon = useMemo(
     () =>

@@ -45,6 +45,12 @@ function safeDateFromString(value: string): Date | null {
     return null;
   }
 
+  // Parse YYYY-MM-DD as a local date so it doesn't shift a day across zones.
+  const ymd = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) {
+    return new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  }
+
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return null;
@@ -54,7 +60,13 @@ function safeDateFromString(value: string): Date | null {
 }
 
 export function getDaysUntilRenewal(license: License): number | null {
-  const date = safeDateFromString(license.renewalDate);
+  // New-shape licenses carry a classification; trust their structured ISO
+  // date (null = no renewal date). Fall back to the display string only for
+  // legacy data that predates the renewal-classifier rework.
+  const source = license.renewalClass !== undefined
+    ? (license.renewalDateISO ?? '')
+    : license.renewalDate;
+  const date = safeDateFromString(source || '');
   if (!date) {
     return null;
   }
@@ -88,6 +100,11 @@ const UNDATED_BY_DESIGN_PATTERNS = [
  * genuinely missing. Used to keep these off the "missing date" surfaces.
  */
 export function isUndatedByDesign(license: License): boolean {
+  // New-shape licenses carry the classification directly.
+  if (license.renewalClass !== undefined) {
+    return license.renewalClass === 'undated-by-design';
+  }
+  // Legacy fallback: sniff the renewal-date text for the same signals.
   const raw = String(license.renewalDate || '').trim().toLowerCase();
   if (!raw) return false;
   return UNDATED_BY_DESIGN_PATTERNS.some((pattern) => raw.includes(pattern));

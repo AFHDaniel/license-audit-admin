@@ -16,6 +16,7 @@ import {
 } from './reminderScheduler.mjs';
 import { renderAdminTest, renderRenewalReminder } from './emailTemplate.mjs';
 import { auditDataHygiene } from './dataHygiene.mjs';
+import { classifyRenewal } from './renewalClassifier.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -589,7 +590,12 @@ function deriveRisk(daysRemaining) {
   return 'Low Risk';
 }
 
-function deriveStatus(daysRemaining, seats) {
+function deriveStatus(daysRemaining, seats, renewalClass) {
+  // A record that should carry a renewal date but doesn't is flagged outright
+  // so it can't masquerade as Healthy on the dashboard.
+  if (renewalClass === 'missing') {
+    return 'Term Information Missing';
+  }
   if (daysRemaining != null && daysRemaining <= 30) {
     return 'Warning';
   }
@@ -1213,7 +1219,17 @@ function mapMondayItem(item, options = {}) {
   const applicationName = parentItemName ? `${parentItemName} / ${item.name}` : item.name;
   const amount = getAmount(columns);
   const renewalText = getRenewalDateRaw(columns);
-  const daysRemaining = daysUntil(renewalText);
+  const renewalTypeValue = getRenewalType(columns);
+  const lengthValue = getLengthText(columns);
+  // Resolve the raw renewal columns into a real date + a classification.
+  // `renewalDateISO` is the machine date (real or projected); everything
+  // downstream computes days-until from it instead of re-parsing display text.
+  const renewal = classifyRenewal({
+    renewalType: renewalTypeValue,
+    rawDate: renewalText,
+    length: lengthValue,
+  });
+  const daysRemaining = renewal.renewalDateISO ? daysUntil(renewal.renewalDateISO) : null;
   const riskLevel = deriveRisk(daysRemaining);
   const seatsColumn = getMappedColumn(columns, 'seats');
   const useCaseColumn = getMappedColumn(columns, 'useCase');
@@ -1229,10 +1245,12 @@ function mapMondayItem(item, options = {}) {
     application: applicationName || 'Untitled',
     vendor: deriveVendor(applicationName),
     amount,
-    length: getLengthText(columns),
+    length: lengthValue,
     renewalMethod: normalizeRenewalMethod(renewalMethodColumn ? getColumnText(columns, renewalMethodColumn.id) : ''),
-    renewalDate: formatDateDisplay(renewalText),
-    renewalType: getRenewalType(columns),
+    renewalDate: renewal.renewalDateDisplay,
+    renewalDateISO: renewal.renewalDateISO,
+    renewalClass: renewal.renewalClass,
+    renewalType: renewalTypeValue,
     seats,
     useCase,
     progress: deriveProgress(daysRemaining),
@@ -1245,7 +1263,7 @@ function mapMondayItem(item, options = {}) {
     parentItemId: parentItemId ? String(parentItemId) : undefined,
     coOwners,
     riskLevel,
-    status: deriveStatus(daysRemaining, seats),
+    status: deriveStatus(daysRemaining, seats, renewal.renewalClass),
   };
 }
 
@@ -1521,7 +1539,12 @@ async function sendRenewalReminderEmail({ to, license, daysUntilRenewal }) {
   const sender = process.env.ACS_SENDER_ADDRESS;
   if (!sender) throw new Error('ACS_SENDER_ADDRESS is not set on the server.');
 
-  const { subject, plainText, html } = renderRenewalReminder({ license, daysUntilRenewal });
+  // One owner -> greet them by name; multiple (or none) -> "Hi team,".
+  const coOwners = Array.isArray(license.coOwners) ? license.coOwners : [];
+  const recipientName = coOwners.length === 1
+    ? ((coOwners[0] && coOwners[0].name) || '').trim() || undefined
+    : undefined;
+  const { subject, plainText, html } = renderRenewalReminder({ license, daysUntilRenewal, recipientName });
 
   const poller = await client.beginSend({
     senderAddress: sender,

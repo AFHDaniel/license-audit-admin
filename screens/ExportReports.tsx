@@ -13,8 +13,8 @@ import { ExportFilterState, ExportPaymentFilter, filterLicensesForExport } from 
 import { formatCurrency } from '../utils/licenseMetrics';
 
 interface ExportReportsProps {
+  // Already department + co-owner scoped by useScopedLicenses upstream.
   licenses: License[];
-  allowedDepartments?: string[];
 }
 
 const BASE_FILTERS: Omit<ExportFilterState, 'selectedDepartments'> = {
@@ -25,17 +25,21 @@ const BASE_FILTERS: Omit<ExportFilterState, 'selectedDepartments'> = {
   renewalWindow: 'ALL',
 };
 
-const ExportReports: React.FC<ExportReportsProps> = ({ licenses, allowedDepartments }) => {
+const ExportReports: React.FC<ExportReportsProps> = ({ licenses }) => {
   const [filters, setFilters] = useState<ExportFilterState>({
     ...BASE_FILTERS,
     selectedDepartments: [],
   });
   const initializedDepartmentsRef = useRef(false);
 
-  const departmentOptions = useMemo(() => {
-    const fromLicenses = Array.from(new Set(licenses.map((license) => license.department).filter(Boolean))).sort();
-    return allowedDepartments ? fromLicenses.filter((d) => allowedDepartments.includes(d)) : fromLicenses;
-  }, [licenses, allowedDepartments]);
+  // Derive options straight from the scoped license list. That list already
+  // includes co-owned apps from outside the user's own department(s), so we
+  // must NOT re-intersect with the granted-department list -- doing so dropped
+  // co-owned records from the export. Inventory shows them; export now matches.
+  const departmentOptions = useMemo(
+    () => Array.from(new Set(licenses.map((license) => license.department).filter(Boolean))).sort(),
+    [licenses],
+  );
 
   useEffect(() => {
     if (initializedDepartmentsRef.current) return;
@@ -295,6 +299,7 @@ const ExportReports: React.FC<ExportReportsProps> = ({ licenses, allowedDepartme
               <option value="Warning">Warning</option>
               <option value="Healthy">Healthy</option>
               <option value="Over-provisioned">Over-provisioned</option>
+              <option value="Term Information Missing">Term info missing</option>
             </select>
           </label>
         </div>

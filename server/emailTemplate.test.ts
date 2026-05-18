@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderRenewalReminder, renderAdminTest, urgencyTier } from './emailTemplate.mjs';
+import { renderRenewalReminder, renderAdminTest, reminderStage, urgencyTier } from './emailTemplate.mjs';
 
 const sampleLicense = {
   id: 'lic-1',
@@ -10,82 +10,86 @@ const sampleLicense = {
   renewalDate: '2026-06-12',
   renewalMethod: 'ACH',
   amount: 24000,
+  length: 'Annual',
   seats: '120',
 };
 
-test('urgencyTier maps day counts across the full cadence', () => {
+test('reminderStage maps day counts to the five-stage cadence', () => {
+  assert.equal(reminderStage(120), '90-day');
+  assert.equal(reminderStage(90), '90-day');
+  assert.equal(reminderStage(61), '90-day');
+  assert.equal(reminderStage(60), '60-day');
+  assert.equal(reminderStage(31), '60-day');
+  assert.equal(reminderStage(30), '30-day');
+  assert.equal(reminderStage(1), '30-day');
+  assert.equal(reminderStage(0), 'expiration');
+  assert.equal(reminderStage(-1), 'post-expiration');
+  assert.equal(reminderStage(-90), 'post-expiration');
+  assert.equal(reminderStage(null), 'expiration');
+});
+
+test('urgencyTier remains exported for backward compatibility', () => {
   assert.equal(urgencyTier(-90), 'overdue-severe');
-  assert.equal(urgencyTier(-60), 'overdue-severe');
-  assert.equal(urgencyTier(-59), 'overdue');
-  assert.equal(urgencyTier(-2), 'overdue');
-  assert.equal(urgencyTier(-1), 'overdue');
   assert.equal(urgencyTier(0), 'critical');
-  assert.equal(urgencyTier(1), 'critical');
-  assert.equal(urgencyTier(7), 'critical');
-  assert.equal(urgencyTier(8), 'high');
-  assert.equal(urgencyTier(14), 'high');
-  assert.equal(urgencyTier(15), 'medium');
-  assert.equal(urgencyTier(30), 'medium');
-  assert.equal(urgencyTier(31), 'planning');
-  assert.equal(urgencyTier(60), 'planning');
   assert.equal(urgencyTier(90), 'planning');
-  assert.equal(urgencyTier(91), 'info');
   assert.equal(urgencyTier(null), 'info');
 });
 
-test('renderRenewalReminder produces subject + plain text + html for a 30-day notice', () => {
-  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 30 });
-  assert.match(result.subject, /Renewal notice: Slack Business\+/);
-  assert.match(result.subject, /30 days/);
-  assert.match(result.plainText, /Slack Business\+/);
-  assert.match(result.plainText, /Operations/);
-  assert.match(result.plainText, /\$24,000/);
-  assert.match(result.plainText, /applications\.atlantafinehomes\.com\/license\/lic-1/);
-  assert.match(result.html, /<!DOCTYPE html>/);
-  assert.match(result.html, /Slack Business/);
-  assert.match(result.html, /RENEWS IN 30 DAYS/);
-  assert.match(result.html, /Review in Application Tracker/);
+test('90-day reminder is a friendly heads-up that mentions negotiating', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 90 });
+  assert.match(result.subject, /^Heads-up: Slack Business\+/);
+  assert.match(result.subject, /90 days/);
+  assert.match(result.html, /RENEWS IN 90 DAYS/);
+  assert.match(result.html, /A good time to:/);
+  assert.match(result.plainText, /negotiate pricing/);
 });
 
-test('renderRenewalReminder marks a 5-day reminder as critical and changes the subject prefix', () => {
-  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 5 });
-  assert.match(result.subject, /^Action needed:/);
-  assert.match(result.subject, /5 days/);
-  assert.match(result.html, /RENEWS IN 5 DAYS/);
+test('60-day reminder nudges toward a pricing review', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 45 });
+  assert.match(result.subject, /^Renewal in 2 months: Slack Business\+/);
+  assert.match(result.html, /RENEWS IN 45 DAYS/);
+  assert.match(result.plainText, /Worth checking before it renews/);
 });
 
-test('renderRenewalReminder marks overdue licenses with the OVERDUE label and warns about lapsing', () => {
-  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: -3 });
-  assert.match(result.subject, /^OVERDUE:/);
-  assert.match(result.html, /OVERDUE BY 3 DAYS/);
-  assert.match(result.plainText, /3 days ago/);
+test('30-day reminder is action-oriented', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 20 });
+  assert.match(result.subject, /^Action needed: Slack Business\+/);
+  assert.match(result.html, /RENEWS IN 20 DAYS &middot; ACTION NEEDED|RENEWS IN 20 DAYS . ACTION NEEDED/);
+  assert.match(result.plainText, /already handled the renewal/);
 });
 
-test('renderRenewalReminder uses SEVERELY OVERDUE for 60-89 days past due', () => {
-  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: -65 });
-  assert.match(result.subject, /^SEVERELY OVERDUE:/);
-  assert.match(result.html, /SEVERELY OVERDUE/);
-  assert.match(result.plainText, /65 days past/);
-});
-
-test('renderRenewalReminder flags 90+ day overdue as likely-lapsed', () => {
-  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: -120 });
-  assert.match(result.subject, /^LAPSED:/);
-  assert.match(result.html, /LIKELY LAPSED/);
-  assert.match(result.plainText, /likely been suspended or canceled/);
-});
-
-test('renderRenewalReminder gives a planning subject for 60-90 day lead times', () => {
-  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 75 });
-  assert.match(result.subject, /^Renewal heads-up \(90d\):/);
-  assert.match(result.html, /RENEWS IN 75 DAYS/);
-  assert.match(result.plainText, /quarterly budget review/);
-});
-
-test('renderRenewalReminder uses "Renews today" subject when daysUntilRenewal is 0', () => {
+test('expiration reminder fires on the renewal date', () => {
   const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 0 });
-  assert.match(result.subject, /^Renews today:/);
-  assert.match(result.html, /RENEWS TODAY/);
+  assert.match(result.subject, /^Renewal date today: Slack Business\+/);
+  assert.match(result.html, /REACHED ITS RENEWAL DATE TODAY/);
+  assert.match(result.plainText, /reached its renewal date today/);
+});
+
+test('post-expiration reminder asks to refresh the record', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: -45 });
+  assert.match(result.subject, /^Still need an update: Slack Business\+/);
+  assert.match(result.html, /45 DAYS PAST DUE/);
+  assert.match(result.plainText, /monthly reminder until the record is refreshed/);
+});
+
+test('an explicit stage override bypasses the day-count mapping', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 5, stage: '90-day' });
+  assert.match(result.subject, /^Heads-up:/);
+});
+
+test('every reminder carries the how-to-update block and CTA', () => {
+  for (const days of [90, 45, 20, 0, -30]) {
+    const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: days });
+    assert.match(result.html, /Update it in under a minute/, `update steps missing for day ${days}`);
+    assert.match(result.html, /Open in Application Tracker/, `CTA missing for day ${days}`);
+  }
+});
+
+test('reminders show normalized monthly and annual cost', () => {
+  const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 30 });
+  // $24,000 billed annually => $2,000/mo
+  assert.match(result.plainText, /\$2,000\/mo/);
+  assert.match(result.plainText, /\$24,000\/yr/);
 });
 
 test('renderRenewalReminder escapes user-supplied strings to prevent HTML injection', () => {

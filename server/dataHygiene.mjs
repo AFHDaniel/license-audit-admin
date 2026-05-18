@@ -1,83 +1,25 @@
 //
 // Data-hygiene audit for the renewal-reminder pipeline.
 //
-// A license can only fire a reminder if BOTH:
-//   1. Its `renewalDate` parses to a real date (so we can compute days-until)
+// A license can fire a reminder only when BOTH:
+//   1. It resolves to a real renewal date — renewalClass 'dated' or 'projected'
 //   2. It has at least one co-owner with a usable email
 //
-// This module classifies every license against those two requirements so the
-// Settings UI can show "X of Y records are ready to trigger reminders" plus a
-// drill-down list of the records still missing data.
+// The renewal date itself is classified once, upstream, by
+// server/renewalClassifier.mjs — this module consumes `license.renewalClass`
+// instead of re-parsing the date text. It groups every license against the
+// two firing requirements so the Settings UI can show "X of Y records are
+// ready to fire" plus a drill-down of the records still missing data.
 //
 
-const NON_DATE_KEYWORDS = {
-  empty: ['', null, undefined],
-  na: ['n/a', 'na', 'none', '-'],
-  tbd: ['tbd', 'tba', '?', 'pending'],
-  monthToMonth: ['month to month', 'month-to-month', 'm2m', 'monthly'],
-  untilCancelled: ['until cancelled', 'until canceled', 'ongoing', 'continuous'],
-  externallyManaged: ['managed by', 'externally managed'],
-};
+import { classifyRenewal } from './renewalClassifier.mjs';
 
-function normalize(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-// Whole-word / whole-phrase match. Plain substring matching is unsafe here:
-// a short token like "na" would match inside "managed" or "annual" and
-// mis-bucket the row. Anchoring on non-alphanumeric boundaries fixes that
-// while still matching multi-word phrases like "managed by".
-function matchesKeyword(norm, keyword) {
-  if (!keyword) return false;
-  if (norm === keyword) return true;
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(norm);
-}
-
-function classifyDate(rawValue) {
-  const value = String(rawValue || '').trim();
-  if (!value) return 'empty';
-
-  const norm = normalize(value);
-  for (const [bucket, hits] of Object.entries(NON_DATE_KEYWORDS)) {
-    if (bucket === 'empty') continue;
-    if (hits.some((h) => matchesKeyword(norm, h))) return bucket;
-  }
-
-  // ISO `YYYY-MM-DD`
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return 'parseable';
-
-  // Prose dates like "Apr 01, 2026", "April 1 2026"
-  if (/^[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}$/.test(value)) return 'parseable';
-
-  // Month/year only — not enough to fire on a specific day
-  if (/^\d{1,2}[/-]\d{4}$/.test(value)) return 'monthYearOnly';
-
-  return 'unstructured';
-}
-
-const BUCKET_LABELS = {
-  parseable: 'Has a real renewal date',
-  empty: 'Missing renewal date',
-  na: 'Marked N/A',
-  tbd: 'Marked TBD',
-  monthToMonth: 'Month-to-month',
-  untilCancelled: 'Until cancelled',
-  externallyManaged: 'Externally managed',
-  monthYearOnly: 'Month/year only (no day)',
-  unstructured: 'Free-text — needs cleanup',
-};
-
-const BUCKET_SEVERITY = {
-  parseable: 'good',
-  empty: 'bad',
-  na: 'neutral',
-  tbd: 'warn',
-  monthToMonth: 'neutral',
-  untilCancelled: 'neutral',
-  externallyManaged: 'neutral',
-  monthYearOnly: 'warn',
-  unstructured: 'warn',
+// One bucket per renewalClass. `label` / `severity` drive the Settings chips.
+const CLASS_META = {
+  dated: { label: 'Has a real renewal date', severity: 'good' },
+  projected: { label: 'Projected from contract term', severity: 'good' },
+  'undated-by-design': { label: 'No fixed renewal (by design)', severity: 'neutral' },
+  missing: { label: 'Term information missing', severity: 'bad' },
 };
 
 function coOwnerEmailCount(license) {
@@ -89,11 +31,18 @@ function coOwnerEmailCount(license) {
   return count;
 }
 
-// Renewal types that intentionally never fire reminders. A license tagged with
-// one of these is OK to have an empty date — it's a deliberate choice, not a
-// data-hygiene issue.
-const NON_FIRING_TYPES = new Set(['Until Cancelled', 'Month-to-month', 'One-time', 'Externally Managed']);
-const FIRING_TYPES = new Set(['Fixed Date', 'Auto-renew']);
+// Prefer the classification the proxy already attached. Fall back to running
+// the classifier here for legacy / hand-built records that lack `renewalClass`.
+function resolveRenewalClass(license) {
+  if (license.renewalClass && CLASS_META[license.renewalClass]) {
+    return license.renewalClass;
+  }
+  return classifyRenewal({
+    renewalType: license.renewalType,
+    rawDate: license.renewalDate,
+    length: license.length,
+  }).renewalClass;
+}
 
 /**
  * Audit a list of licenses and return a structured hygiene report.
@@ -101,8 +50,14 @@ const FIRING_TYPES = new Set(['Fixed Date', 'Auto-renew']);
  */
 export function auditDataHygiene(licenses) {
   const buckets = {};
-  for (const key of Object.keys(BUCKET_LABELS)) {
-    buckets[key] = { key, label: BUCKET_LABELS[key], severity: BUCKET_SEVERITY[key], count: 0, sampleIds: [] };
+  for (const key of Object.keys(CLASS_META)) {
+    buckets[key] = {
+      key,
+      label: CLASS_META[key].label,
+      severity: CLASS_META[key].severity,
+      count: 0,
+      sampleIds: [],
+    };
   }
 
   let withCoOwners = 0;
@@ -112,76 +67,51 @@ export function auditDataHygiene(licenses) {
   const needsAttention = [];
 
   for (const license of licenses) {
-    const bucket = classifyDate(license.renewalDate);
-    buckets[bucket].count += 1;
-    if (buckets[bucket].sampleIds.length < 5) buckets[bucket].sampleIds.push(license.id);
+    const renewalClass = resolveRenewalClass(license);
+    const bucket = buckets[renewalClass] || buckets.missing;
+    bucket.count += 1;
+    if (bucket.sampleIds.length < 5) bucket.sampleIds.push(license.id);
 
-    const hasCoOwner = coOwnerEmailCount(license) > 0;
+    const coOwnerCount = coOwnerEmailCount(license);
+    const hasCoOwner = coOwnerCount > 0;
     if (hasCoOwner) withCoOwners += 1;
 
-    const renewalType = (license.renewalType || '').trim();
-    const isFiring = FIRING_TYPES.has(renewalType);
-    const isNonFiring = NON_FIRING_TYPES.has(renewalType);
-    const dateOk = bucket === 'parseable';
-    // A renewal-date field that literally reads "until cancelled", "managed
-    // by <vendor>", "month-to-month" etc. is itself proof the license has no
-    // fixed renewal — treat it as intentionally silent even when the Renewal
-    // Type column is left blank.
-    const dateBucketIsNonFiring =
-      bucket === 'untilCancelled' || bucket === 'monthToMonth' || bucket === 'externallyManaged';
-
-    // Intentionally silent: tagged Until Cancelled / Month-to-month / etc., or
-    // the date field itself says so — these correctly have no reminders.
-    // Don't flag them as broken.
-    if (isNonFiring || dateBucketIsNonFiring) {
+    // Undated by design — correctly has no reminders, nothing to fix.
+    if (renewalClass === 'undated-by-design') {
       intentionallySilent += 1;
       continue;
     }
 
-    // No renewal type set yet (Pending or empty) — needs human classification.
-    if (!isFiring) {
+    const baseRow = {
+      id: license.id,
+      application: license.application || 'Unnamed',
+      department: license.department || '',
+      renewalDate: license.renewalDate || '',
+      dateBucket: renewalClass,
+      dateBucketLabel: CLASS_META[renewalClass]?.label || '',
+      hasCoOwner,
+      coOwnerCount,
+      amount: license.amount || 0,
+    };
+
+    // Missing a renewal date entirely — surfaces as "Term Information Missing".
+    if (renewalClass === 'missing') {
       needsClassification += 1;
-      needsAttention.push({
-        id: license.id,
-        application: license.application || 'Unnamed',
-        department: license.department || '',
-        renewalDate: license.renewalDate || '',
-        dateBucket: bucket,
-        dateBucketLabel: BUCKET_LABELS[bucket],
-        hasCoOwner,
-        coOwnerCount: coOwnerEmailCount(license),
-        amount: license.amount || 0,
-        missing: renewalType === 'Pending' ? 'renewal-type-pending' : 'renewal-type',
-      });
+      needsAttention.push({ ...baseRow, missing: hasCoOwner ? 'date' : 'date+co-owner' });
       continue;
     }
 
-    // Firing type (Fixed Date / Auto-renew): must have date + co-owner.
-    if (dateOk && hasCoOwner) {
+    // dated / projected — has a date; fires only if it also has a co-owner.
+    if (hasCoOwner) {
       readyToFire += 1;
     } else {
-      needsAttention.push({
-        id: license.id,
-        application: license.application || 'Unnamed',
-        department: license.department || '',
-        renewalDate: license.renewalDate || '',
-        dateBucket: bucket,
-        dateBucketLabel: BUCKET_LABELS[bucket],
-        hasCoOwner,
-        coOwnerCount: coOwnerEmailCount(license),
-        amount: license.amount || 0,
-        missing: !dateOk ? (hasCoOwner ? 'date' : 'date+co-owner') : 'co-owner',
-      });
+      needsAttention.push({ ...baseRow, missing: 'co-owner' });
     }
   }
 
-  const missingRank = {
-    'renewal-type': 0,
-    'renewal-type-pending': 1,
-    'date+co-owner': 2,
-    'date': 3,
-    'co-owner': 4,
-  };
+  // Worst-off first: missing date + co-owner, then missing date, then co-owner;
+  // ties broken by spend so the most expensive gaps surface at the top.
+  const missingRank = { 'date+co-owner': 0, date: 1, 'co-owner': 2 };
   needsAttention.sort((a, b) => {
     const r = (missingRank[a.missing] ?? 99) - (missingRank[b.missing] ?? 99);
     if (r !== 0) return r;
@@ -192,7 +122,7 @@ export function auditDataHygiene(licenses) {
     total: licenses.length,
     readyToFire,
     withCoOwners,
-    withRealDate: buckets.parseable.count,
+    withRealDate: buckets.dated.count + buckets.projected.count,
     intentionallySilent,
     needsClassification,
     buckets: Object.values(buckets).sort((a, b) => b.count - a.count),

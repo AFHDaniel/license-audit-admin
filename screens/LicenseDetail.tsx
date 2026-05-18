@@ -33,7 +33,7 @@ interface LicenseDetailProps {
   isSyncing?: boolean;
   onBack: () => void;
   onOpenInventory?: (preset: InventoryFilterPreset) => void;
-  onLicenseUpdated?: () => void;
+  onLicenseUpdated?: (updated: License | null) => void;
 }
 
 const fadeUp = (delay = 0) => ({
@@ -70,6 +70,28 @@ function toDateInputValue(value: string | null | undefined): string {
   const month = String(parsed.getMonth() + 1).padStart(2, '0');
   const day = String(parsed.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+// Canonical values for the writeback dropdowns. Constraining these fields to a
+// fixed set is what keeps the Monday data clean (no more "yearly" vs "Annual").
+const TERM_OPTIONS = ['Monthly', 'Quarterly', 'Annually', 'Multi-Year', 'Month-to-month', 'One-time', 'No Contract'];
+const RENEWAL_METHOD_OPTIONS = ['ACH', 'Credit Card', 'Manual'];
+
+// Build a select's option list: the record's current value first — so a
+// non-canonical legacy value stays editable instead of being silently
+// rewritten — then the canonical set, de-duplicated case-insensitively.
+function selectOptions(current: string, canonical: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of [current, ...canonical]) {
+    const trimmed = String(value || '').trim();
+    const key = trimmed.toLowerCase();
+    if (trimmed && !seen.has(key)) {
+      seen.add(key);
+      out.push(trimmed);
+    }
+  }
+  return out;
 }
 
 const LicenseDetail: React.FC<LicenseDetailProps> = ({
@@ -109,7 +131,7 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
       : '';
     const initialLength = license.length || '';
     const initialMethod = license.renewalMethod || '';
-    const initialDate = toDateInputValue(license.renewalDate);
+    const initialDate = toDateInputValue(license.renewalDateISO || license.renewalDate);
     const initialSeats = license.seats || '';
     const initialUseCase = license.useCase || '';
 
@@ -182,9 +204,10 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
     setSaveError(null);
     setSaveSuccess(null);
     try {
-      await updateLicenseRenewal(license.id, payload, { getAccessToken });
+      const result = await updateLicenseRenewal(license.id, payload, { getAccessToken });
       setSaveSuccess(`Saved ${changedKeys.join(', ')} to Monday.`);
-      onLicenseUpdated?.();
+      // Hand the Monday-confirmed record back so costs/status refresh immediately.
+      onLicenseUpdated?.(result.updated);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Unable to update Monday right now.');
     } finally {
@@ -265,7 +288,7 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
     { label: 'Billed Amount', value: formatCurrency(license.amount), sub: `${billingCadence} charge`, Icon: IconCurrencyDollar },
     { label: 'Monthly Cost', value: formatCurrency(getMonthlyCost(license)), sub: 'Normalized monthly', Icon: IconReceiptDollar },
     { label: 'Annual Cost', value: formatCurrency(getAnnualCost(license)), sub: 'Normalized annual', Icon: IconCalendar },
-    { label: 'Renewal Date', value: license.renewalDate || 'TBD', sub: renewalUrgency, Icon: IconCalendarEvent },
+    { label: 'Renewal Date', value: license.renewalDate || 'Not set', sub: renewalUrgency, Icon: IconCalendarEvent },
     { label: 'Seats', value: license.seats || 'N/A', sub: license.useCase || 'No use case', Icon: IconUsers },
     { label: 'Risk / Status', value: license.riskLevel, sub: license.status, Icon: IconShieldCheck },
   ], [license.amount, license.renewalDate, license.seats, license.useCase, license.riskLevel, license.status, billingCadence, renewalUrgency, license]);
@@ -277,11 +300,12 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
     setter: React.Dispatch<React.SetStateAction<string>>;
     placeholder?: string;
     type?: string;
+    options?: string[];
   }> = [
     { key: 'amount', label: 'Amount', value: amountInput, setter: setAmountInput, placeholder: '2500', type: 'text' },
     { key: 'renewalDate', label: 'Renewal Date', value: renewalDateInput, setter: setRenewalDateInput, type: 'date' },
-    { key: 'length', label: 'Length / Term', value: lengthInput, setter: setLengthInput, placeholder: 'Annual', type: 'text' },
-    { key: 'renewalMethod', label: 'Renewal Method', value: renewalMethodInput, setter: setRenewalMethodInput, placeholder: 'ACH', type: 'text' },
+    { key: 'length', label: 'Length / Term', value: lengthInput, setter: setLengthInput, type: 'select', options: selectOptions(lengthInput, TERM_OPTIONS) },
+    { key: 'renewalMethod', label: 'Renewal Method', value: renewalMethodInput, setter: setRenewalMethodInput, type: 'select', options: selectOptions(renewalMethodInput, RENEWAL_METHOD_OPTIONS) },
     { key: 'seats', label: 'Seats', value: seatsInput, setter: setSeatsInput, placeholder: '25', type: 'text' },
     { key: 'useCase', label: 'Use Case', value: useCaseInput, setter: setUseCaseInput, placeholder: 'Document Signing', type: 'text' },
   ];
@@ -407,7 +431,7 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
                 ['Billing Cycle', billingCadence],
                 ['Length / Term', license.length || 'Unknown'],
                 ['Renewal Method', license.renewalMethod || 'Unknown'],
-                ['Renewal Date', license.renewalDate || 'TBD'],
+                ['Renewal Date', license.renewalDate || 'Not set'],
                 ['Seats', license.seats || 'N/A'],
                 ['Use Case', license.useCase || 'General'],
               ] as Array<[string, string] | null>)
@@ -440,13 +464,26 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
                 {formFields.map((field) => (
                   <label key={field.key} className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {field.label}
-                    <input
-                      type={field.type}
-                      value={field.value}
-                      onChange={(e) => field.setter(e.target.value)}
-                      placeholder={field.placeholder}
-                      className="h-8 rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal placeholder:text-muted-foreground focus:border-ring transition-colors"
-                    />
+                    {field.type === 'select' ? (
+                      <select
+                        value={field.value}
+                        onChange={(e) => field.setter(e.target.value)}
+                        className="h-8 rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal focus:border-ring transition-colors"
+                      >
+                        <option value="">Select...</option>
+                        {(field.options || []).map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.type}
+                        value={field.value}
+                        onChange={(e) => field.setter(e.target.value)}
+                        placeholder={field.placeholder}
+                        className="h-8 rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal placeholder:text-muted-foreground focus:border-ring transition-colors"
+                      />
+                    )}
                   </label>
                 ))}
               </div>
@@ -481,7 +518,7 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
                     setAmountInput(Number.isFinite(license.amount) ? String(license.amount) : '');
                     setLengthInput(license.length || '');
                     setRenewalMethodInput(license.renewalMethod || '');
-                    setRenewalDateInput(toDateInputValue(license.renewalDate));
+                    setRenewalDateInput(toDateInputValue(license.renewalDateISO || license.renewalDate));
                     setSeatsInput(license.seats || '');
                     setUseCaseInput(license.useCase || '');
                     setSaveError(null);

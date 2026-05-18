@@ -119,7 +119,14 @@ export interface License {
   amount: number;
   length: string;
   renewalMethod: 'Manual' | 'ACH' | 'Credit Card' | string;
+  // Human-readable renewal date — a formatted date, an "Until cancelled"-style
+  // label, or '' when genuinely missing. Never the legacy "TBD" sentinel.
   renewalDate: string;
+  // Machine renewal date (YYYY-MM-DD) — the real or term-projected date, or
+  // null when the record has no renewal date. Drives every days-until calc.
+  renewalDateISO?: string | null;
+  // How the proxy resolved the renewal columns. See server/renewalClassifier.mjs.
+  renewalClass?: 'dated' | 'projected' | 'undated-by-design' | 'missing';
   renewalType?: 'Fixed Date' | 'Auto-renew' | 'Month-to-month' | 'Until Cancelled' | 'One-time' | 'Externally Managed' | 'Pending' | string;
   seats: string;
   useCase: string;
@@ -133,7 +140,7 @@ export interface License {
   parentItemId?: string;
   coOwners?: LicenseCoOwner[];
   riskLevel: 'Low Risk' | 'Medium Risk' | 'High Risk';
-  status: 'Healthy' | 'Over-provisioned' | 'Warning';
+  status: 'Healthy' | 'Over-provisioned' | 'Warning' | 'Term Information Missing';
 }
 
 export type BillingCadence = 'Annual' | 'Quarterly' | 'Monthly' | 'Multi-Year' | 'Other' | 'Unknown';

@@ -5,10 +5,10 @@ import { readEmailLog } from './emailLog.mjs';
 const STATE_FILENAME = 'reminder-state.json';
 const DEFAULT_PROD_DIR = '/home/data';
 const DEFAULT_DEV_DIR = path.join(process.cwd(), 'data');
-// Pre-renewal nudges at quarter (90), bi-monthly (60), monthly (30), two-week,
-// one-week, and last-day marks. Overdue escalations at 1, 30, 60, 90 days past
-// the date in Monday. Override with REMINDER_TRIGGER_DAYS=90,60,30,...
-const DEFAULT_TRIGGERS = [90, 60, 30, 14, 7, 1, -1, -30, -60, -90];
+// Pre-renewal nudges at 90, 60, and 30 days out, plus a notice on the renewal
+// date itself (0). No post-expiration reminders by design - staff close
+// renewals out before they lapse. Override with REMINDER_TRIGGER_DAYS=90,60,30,0
+const DEFAULT_TRIGGERS = [90, 60, 30, 0];
 const DEFAULT_RUN_HOUR_UTC = 13; // 9am ET ~ 13:00 UTC during DST
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -89,7 +89,9 @@ export function selectLicensesForReminder(licenses, triggerDays, now = new Date(
   const matches = [];
   for (const license of licenses) {
     if (license.renewalType && NON_FIRING_TYPES.has(license.renewalType)) continue;
-    const days = daysUntilDate(license.renewalDate, now);
+    // Prefer the structured ISO date (real or term-projected); fall back to
+    // the display string only for legacy data without a classification.
+    const days = daysUntilDate(license.renewalDateISO || license.renewalDate, now);
     if (days == null) continue;
     if (!triggerSet.has(days)) continue;
     matches.push({ license, daysUntilRenewal: days });

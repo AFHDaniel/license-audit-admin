@@ -5,7 +5,13 @@
 // object so every email channel (ACS, plain SMTP later, preview UI) shares
 // one source of truth. Emails are built with tables + inline styles because
 // Outlook, Apple Mail, Gmail web, and ProtonMail all interpret modern CSS
-// differently — tables + inline are the only reliable cross-client format.
+// differently - tables + inline are the only reliable cross-client format.
+//
+// Renewal reminders follow the five-stage cadence agreed with Sarah
+// (May 15, 2026 review): 90-day, 60-day, 30-day, expiration day, and a
+// monthly post-expiration nudge. Each stage has its own wording - proactive
+// and negotiation-focused early, action-oriented near the date, and a
+// gentle "keep the data fresh" tone once it has lapsed.
 //
 
 const BRAND = {
@@ -29,6 +35,8 @@ const BRAND = {
 const FONT_STACK = `'Benton Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif`;
 const SERIF_STACK = `'Mercury Display', 'Freight Big Pro', Georgia, 'Times New Roman', serif`;
 
+const TRACKER_BASE_URL = 'https://applications.atlantafinehomes.com';
+
 function escapeHtml(value) {
   if (value == null) return '';
   return String(value)
@@ -41,17 +49,58 @@ function escapeHtml(value) {
 
 function formatCurrency(amount) {
   const numeric = Number(amount);
-  if (!Number.isFinite(numeric) || numeric <= 0) return 'Not on file';
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
   return `$${numeric.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function formatRenewalDate(value) {
   if (!value) return 'Date not set';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+// Best-effort billing cadence from the free-text Monday "Length / Term" value.
+// Mirrors utils/licenseMetrics.ts:getBillingCadenceFromLength so the email's
+// monthly/annual figures match what the dashboard shows.
+function billingCadenceFromLength(lengthText) {
+  const t = String(lengthText || '').trim().toLowerCase();
+  if (!t) return 'Unknown';
+  if (/(multi-?year|36\s*months?|3\s*years?)/.test(t)) return 'Multi-Year';
+  if (/(quarter|qtr|3\s*months?)/.test(t)) return 'Quarterly';
+  if (/(annual|annually|yearly|year|per year|\/yr|\byr\b|12\s*months?)/.test(t)) return 'Annual';
+  if (/(month|per month|\/mo|\bmo\b)/.test(t)) return 'Monthly';
+  return 'Unknown';
+}
+
+// Returns { monthly, annual } as numbers (or null when amount/cadence is unknown).
+// `license.amount` is the per-cycle billed amount; cadence decides how to
+// normalize it to a monthly and an annual figure.
+function computeCosts(license) {
+  const amount = Number(license && license.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return { monthly: null, annual: null };
+  switch (billingCadenceFromLength(license.length)) {
+    case 'Monthly': return { monthly: amount, annual: amount * 12 };
+    case 'Quarterly': return { monthly: amount / 3, annual: amount * 4 };
+    case 'Annual': return { monthly: amount / 12, annual: amount };
+    case 'Multi-Year': return { monthly: amount / 36, annual: amount / 3 };
+    default: return { monthly: null, annual: null };
+  }
+}
+
+// Map days-until-renewal to one of the five reminder stages. Callers may also
+// pass an explicit stage (the preview tool does this) to bypass the mapping.
+export function reminderStage(daysUntilRenewal) {
+  if (daysUntilRenewal == null || !Number.isFinite(daysUntilRenewal)) return 'expiration';
+  if (daysUntilRenewal < 0) return 'post-expiration';
+  if (daysUntilRenewal === 0) return 'expiration';
+  if (daysUntilRenewal <= 30) return '30-day';
+  if (daysUntilRenewal <= 60) return '60-day';
+  return '90-day';
+}
+
+// Legacy export - kept for backward compatibility with existing callers/tests.
+// Renewal reminders now use reminderStage(); this is no longer used internally.
 export function urgencyTier(daysUntilRenewal) {
   if (daysUntilRenewal == null || !Number.isFinite(daysUntilRenewal)) return 'info';
   if (daysUntilRenewal <= -60) return 'overdue-severe';
@@ -63,71 +112,105 @@ export function urgencyTier(daysUntilRenewal) {
   return 'info';
 }
 
-function tierLabel(tier, daysUntilRenewal) {
-  const abs = Math.abs(daysUntilRenewal);
-  const plural = (n) => (n === 1 ? '' : 'S');
-  switch (tier) {
-    case 'overdue-severe':
-      return `${abs >= 90 ? 'LIKELY LAPSED' : 'SEVERELY OVERDUE'} — ${abs} DAYS PAST DUE`;
-    case 'overdue':
-      return `OVERDUE BY ${abs} DAY${plural(abs)}`;
-    case 'critical':
-      return daysUntilRenewal === 0 ? 'RENEWS TODAY' : `RENEWS IN ${daysUntilRenewal} DAY${plural(daysUntilRenewal)}`;
-    case 'high':
-    case 'medium':
-    case 'planning':
-    case 'info':
-    default:
-      return `RENEWS IN ${daysUntilRenewal} DAYS`;
-  }
-}
-
-function tierColors(tier) {
-  switch (tier) {
-    case 'overdue-severe':
-      return { bg: '#7a0c0c', ink: '#ffffff', accent: '#7a0c0c' };
-    case 'overdue':
-    case 'critical':
-      return { bg: BRAND.dangerBg, ink: BRAND.dangerInk, accent: '#c0392b' };
-    case 'high':
-      return { bg: BRAND.warnBg, ink: BRAND.warnInk, accent: BRAND.gold };
-    case 'medium':
-      return { bg: BRAND.okBg, ink: BRAND.okInk, accent: BRAND.gold };
-    case 'planning':
+function stageColors(stage) {
+  switch (stage) {
+    case '90-day':
       return { bg: '#eef3f8', ink: BRAND.navySoft, accent: BRAND.navy };
-    case 'info':
+    case '60-day':
+      return { bg: '#faf2d9', ink: BRAND.warnInk, accent: BRAND.gold };
+    case '30-day':
+      return { bg: BRAND.warnBg, ink: BRAND.warnInk, accent: '#c0392b' };
+    case 'expiration':
+      return { bg: BRAND.dangerBg, ink: BRAND.dangerInk, accent: '#c0392b' };
+    case 'post-expiration':
     default:
-      return { bg: '#f3f4f6', ink: BRAND.inkSoft, accent: BRAND.navy };
+      return { bg: '#7a0c0c', ink: '#ffffff', accent: '#7a0c0c' };
   }
 }
 
-function tierMessage(tier, daysUntilRenewal, applicationName) {
-  const abs = Math.abs(daysUntilRenewal);
-  switch (tier) {
-    case 'overdue-severe':
-      if (abs >= 90) {
-        return `${applicationName} is ${abs} days past its renewal date. At this point the service has very likely been suspended or canceled by the vendor. Confirm directly with the vendor whether the license is still active and either renew, archive the record, or remove it from the Application Tracker.`;
-      }
-      return `${applicationName} is ${abs} days past its renewal date. The service may already have been suspended or downgraded. Contact the vendor immediately to confirm status and either renew or close out the record in the Application Tracker.`;
-    case 'overdue':
-      return `${applicationName} was due for renewal ${abs} day${abs === 1 ? '' : 's'} ago and is currently past its renewal date. Confirm the renewal status with the vendor and update the record in the Application Tracker so it doesn't lapse.`;
-    case 'critical':
-      if (daysUntilRenewal === 0) {
-        return `${applicationName} renews today. If the renewal is auto-billed, confirm the payment method on file is current. If it's manual, action is needed right now to avoid a lapse.`;
-      }
-      return `${applicationName} renews in ${daysUntilRenewal} day${daysUntilRenewal === 1 ? '' : 's'}. If the renewal is auto-billed, confirm the payment method on file is still valid. If it's manual, action is needed this week.`;
-    case 'high':
-      return `${applicationName} renews in ${daysUntilRenewal} days. This is a heads-up so you can confirm whether you still need the licenses, review payment details, and avoid a last-minute scramble.`;
-    case 'medium':
-      return `${applicationName} renews in ${daysUntilRenewal} days. No immediate action required — this email is a planning notice so the renewal doesn't surprise the budget.`;
-    case 'planning':
-      if (daysUntilRenewal > 60) {
-        return `${applicationName} renews in ${daysUntilRenewal} days. Long-lead heads-up so the renewal lands in your quarterly budget review with plenty of time to evaluate seats, alternatives, and contract terms.`;
-      }
-      return `${applicationName} renews in ${daysUntilRenewal} days. Good moment to put it on the next budget review and confirm with the team that the tool is still in active use.`;
-    case 'info':
+function stageBannerLabel(stage, daysUntilRenewal) {
+  const days = Number(daysUntilRenewal);
+  const abs = Math.abs(days);
+  switch (stage) {
+    case '90-day':
+      return Number.isFinite(days) ? `RENEWS IN ${days} DAYS` : 'RENEWS IN ABOUT 90 DAYS';
+    case '60-day':
+      return Number.isFinite(days) ? `RENEWS IN ${days} DAYS` : 'RENEWS IN ABOUT 2 MONTHS';
+    case '30-day':
+      return Number.isFinite(days) ? `RENEWS IN ${days} DAYS · ACTION NEEDED` : 'RENEWS SOON · ACTION NEEDED';
+    case 'expiration':
+      return 'REACHED ITS RENEWAL DATE TODAY';
+    case 'post-expiration':
     default:
-      return `${applicationName} renews in ${daysUntilRenewal} days. Informational notice from the Application Tracker — no action required yet.`;
+      return Number.isFinite(days) && abs > 0
+        ? `${abs} DAYS PAST DUE · UPDATE NEEDED`
+        : 'PAST ITS RENEWAL DATE · UPDATE NEEDED';
+  }
+}
+
+// Per-stage copy: the headline subject prefix, the lead paragraph, and a
+// short "what to do" checklist. Wording comes straight from the May 15 review.
+function stageContent(stage, application, renewalDateText) {
+  switch (stage) {
+    case '90-day':
+      return {
+        subjectPrefix: 'Heads-up',
+        subjectTail: 'renews in about 90 days',
+        message: `${application} is set to renew on ${renewalDateText} - about 90 days out. Nothing urgent yet, but this is the ideal window to get ahead of it. If you're planning to keep ${application}, now is the best time to negotiate pricing: vendors are far more flexible before a deadline is on top of them.`,
+        listHeading: 'A good time to:',
+        listItems: [
+          'Confirm the team still actively uses this tool.',
+          'Reach out to the vendor about pricing for the upcoming term.',
+          "Tell us if you'd like help benchmarking the cost or weighing alternatives.",
+        ],
+      };
+    case '60-day':
+      return {
+        subjectPrefix: 'Renewal in 2 months',
+        subjectTail: 'a good time to review pricing',
+        message: `${application} renews on ${renewalDateText} - roughly two months away. If you haven't already started the conversation with the vendor, now is the time to reach out and negotiate pricing before the renewal locks in.`,
+        listHeading: 'Worth checking before it renews:',
+        listItems: [
+          "Are you still using everything you're paying for - seats, tier, add-ons?",
+          'Has the vendor raised the price since last year?',
+          'Would a longer term or annual prepay bring the rate down?',
+        ],
+      };
+    case '30-day':
+      return {
+        subjectPrefix: 'Action needed',
+        subjectTail: 'renews in about 30 days',
+        message: `${application} renews in about 30 days, on ${renewalDateText}. This is the point to lock things in - connect with your vendor rep to confirm pricing and terms for the upcoming period.`,
+        listHeading: 'Please:',
+        listItems: [
+          'If you have already handled the renewal - great. Update the renewal date and cost in the tracker so our records are current.',
+          'If the pricing changed, review and update the cost so spend reporting stays accurate.',
+          'If you are considering a change or cancellation, act now - some agreements require advance notice.',
+        ],
+      };
+    case 'expiration':
+      return {
+        subjectPrefix: 'Renewal date today',
+        subjectTail: 'reached its renewal date',
+        message: `Our records show ${application} reached its renewal date today (${renewalDateText}). We need an updated entry to keep our application records and spend reporting accurate.`,
+        listHeading: 'Please let us know:',
+        listItems: [
+          'If it renewed - update the new renewal date, term, and cost in the tracker.',
+          'If it is being dropped - reply to this email so we can mark it inactive.',
+        ],
+      };
+    case 'post-expiration':
+    default:
+      return {
+        subjectPrefix: 'Still need an update',
+        subjectTail: 'is past its renewal date',
+        message: `We are still showing ${application} as past its renewal date (${renewalDateText}) with no updated information. This is a monthly reminder until the record is refreshed. As the owner of this application you are our source of truth for it - a current record helps the whole company see what we use and what we spend, and helps us support you at renewal time.`,
+        listHeading: 'It only takes a minute:',
+        listItems: [
+          'Update the renewal date, term, and cost in the tracker.',
+          'If the application is no longer in use, reply and we will remove it.',
+        ],
+      };
   }
 }
 
@@ -182,59 +265,145 @@ function infoRow(label, value) {
     </tr>`;
 }
 
+// A "what to do" checklist - heading plus gold-marked rows.
+function checklistBlock(heading, items, accent) {
+  const rows = items.map((item) => `
+    <tr>
+      <td style="${styleAttr({ padding: '4px 10px 4px 0', verticalAlign: 'top', width: '14px' })}">
+        <span style="${styleAttr({ color: accent, fontWeight: '700', fontSize: '15px' })}">&bull;</span>
+      </td>
+      <td style="${styleAttr({
+        padding: '4px 0',
+        fontFamily: FONT_STACK,
+        fontSize: '14px',
+        lineHeight: '1.55',
+        color: BRAND.ink,
+      })}">${escapeHtml(item)}</td>
+    </tr>`).join('');
+
+  return `
+    <p style="${styleAttr({
+      margin: '0 0 8px 0',
+      fontFamily: FONT_STACK,
+      fontSize: '12px',
+      fontWeight: '700',
+      letterSpacing: '0.06em',
+      textTransform: 'uppercase',
+      color: BRAND.inkSoft,
+    })}">${escapeHtml(heading)}</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${styleAttr({ marginBottom: '22px' })}">
+      ${rows}
+    </table>`;
+}
+
+// The "how to update" steps box.
+function updateStepsBox(url) {
+  const step = (n, text) => `
+    <tr>
+      <td style="${styleAttr({ padding: '3px 10px 3px 0', verticalAlign: 'top', width: '20px' })}">
+        <span style="${styleAttr({
+          fontFamily: FONT_STACK,
+          fontSize: '12px',
+          fontWeight: '700',
+          color: BRAND.navy,
+        })}">${n}.</span>
+      </td>
+      <td style="${styleAttr({
+        padding: '3px 0',
+        fontFamily: FONT_STACK,
+        fontSize: '13px',
+        lineHeight: '1.55',
+        color: BRAND.ink,
+      })}">${text}</td>
+    </tr>`;
+
+  return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${styleAttr({
+      backgroundColor: BRAND.cream,
+      border: `1px solid ${BRAND.border}`,
+      borderRadius: '6px',
+      marginBottom: '20px',
+    })}">
+      <tr>
+        <td style="${styleAttr({ padding: '16px 18px' })}">
+          <p style="${styleAttr({
+            margin: '0 0 10px 0',
+            fontFamily: FONT_STACK,
+            fontSize: '13px',
+            fontWeight: '700',
+            color: BRAND.navy,
+          })}">Update it in under a minute</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            ${step(1, `Open the record in the Application Tracker - the button below takes you straight to it.`)}
+            ${step(2, 'Update the renewal date, term, and cost.')}
+            ${step(3, 'Hit <strong>Save</strong> - it writes straight back to Monday, so there is nothing else to do.')}
+          </table>
+        </td>
+      </tr>
+    </table>`;
+}
+
 /**
  * Render a branded renewal-reminder email.
  * @param {object} input
- * @param {object} input.license             license record (id, application, vendor, department, renewalDate, renewalMethod, amount, seats, useCase)
- * @param {number} input.daysUntilRenewal    integer days remaining (negative = overdue)
- * @param {string} [input.detailUrl]         override the dashboard URL (defaults to applications.atlantafinehomes.com)
+ * @param {object} input.license             license record (id, application, vendor, department, renewalDate, renewalMethod, amount, length, seats, useCase)
+ * @param {number} input.daysUntilRenewal    integer days remaining (negative = overdue, 0 = today)
+ * @param {string} [input.stage]             explicit stage override ('90-day'|'60-day'|'30-day'|'expiration'|'post-expiration')
+ * @param {string} [input.detailUrl]         override the deep link into the tracker
  * @param {string} [input.recipientName]     personalize greeting (falls back to "team")
  */
-export function renderRenewalReminder({ license, daysUntilRenewal, detailUrl, recipientName }) {
+export function renderRenewalReminder({ license, daysUntilRenewal, stage, detailUrl, recipientName }) {
   if (!license) throw new Error('renderRenewalReminder requires a license');
-  const tier = urgencyTier(daysUntilRenewal);
-  const colors = tierColors(tier);
-  const label = tierLabel(tier, daysUntilRenewal);
+
+  const resolvedStage = stage || reminderStage(daysUntilRenewal);
+  const colors = stageColors(resolvedStage);
+  const bannerLabel = stageBannerLabel(resolvedStage, daysUntilRenewal);
   const greeting = recipientName ? `Hi ${escapeHtml(recipientName)},` : 'Hi team,';
 
   const application = license.application || 'Unnamed application';
   const vendor = license.vendor || '';
   const department = license.department || 'Unassigned';
-  const renewalDate = formatRenewalDate(license.renewalDate);
+  const renewalDateText = formatRenewalDate(license.renewalDate);
   const method = license.renewalMethod || 'Manual';
-  const amount = formatCurrency(license.amount);
+  const term = license.length ? String(license.length) : 'Not on file';
   const seats = license.seats ? String(license.seats) : '';
-  const url = detailUrl || `https://applications.atlantafinehomes.com/license/${encodeURIComponent(license.id || '')}`;
-  const message = tierMessage(tier, daysUntilRenewal, application);
+  const url = detailUrl || `${TRACKER_BASE_URL}/license/${encodeURIComponent(license.id || '')}`;
 
-  const subjectPrefix = tier === 'overdue-severe'
-      ? (Math.abs(daysUntilRenewal) >= 90 ? 'LAPSED' : 'SEVERELY OVERDUE')
-    : tier === 'overdue' ? 'OVERDUE'
-    : tier === 'critical' ? (daysUntilRenewal === 0 ? 'Renews today' : 'Action needed')
-    : tier === 'high' ? 'Renewal in 2 weeks'
-    : tier === 'medium' ? 'Renewal notice'
-    : tier === 'planning' ? (daysUntilRenewal > 60 ? 'Renewal heads-up (90d)' : 'Renewal heads-up')
-    : 'Renewal notice';
-  const subject = `${subjectPrefix}: ${application} — ${label.toLowerCase()}`;
+  const { monthly, annual } = computeCosts(license);
+  const monthlyText = formatCurrency(monthly);
+  const annualText = formatCurrency(annual);
+  const costDisplay = monthlyText && annualText
+    ? `${monthlyText}/mo · ${annualText}/yr`
+    : (formatCurrency(license.amount) || 'Not on file');
+
+  const content = stageContent(resolvedStage, application, renewalDateText);
+  const subject = `${content.subjectPrefix}: ${application} ${content.subjectTail}`;
 
   const plainText = [
-    `${greeting}`,
+    greeting,
     '',
-    message,
+    content.message,
     '',
-    `Application: ${application}${vendor ? ` (vendor: ${vendor})` : ''}`,
-    `Department: ${department}`,
-    `Renewal date: ${renewalDate}`,
-    `Renewal method: ${method}`,
-    `Amount on file: ${amount}`,
-    seats ? `Seats: ${seats}` : null,
+    `${content.listHeading}`,
+    ...content.listItems.map((item) => `  - ${item}`),
     '',
-    `Review and update in the Application Tracker:`,
+    'On file:',
+    `  Application: ${application}${vendor ? ` (${vendor})` : ''}`,
+    `  Department: ${department}`,
+    `  Term: ${term}`,
+    `  Cost: ${costDisplay}`,
+    `  Renewal date: ${renewalDateText}`,
+    `  Renewal method: ${method}`,
+    seats ? `  Seats: ${seats}` : null,
+    '',
+    'Update it in under a minute:',
+    '  1. Open the record in the Application Tracker (link below).',
+    '  2. Update the renewal date, term, and cost.',
+    '  3. Hit Save - it writes straight back to Monday.',
     url,
     '',
-    `— Atlanta Fine Homes Application Tracker`,
-    `This is an automated notification. To stop receiving these, contact daniel@atlantafinehomes.com.`,
-  ].filter(Boolean).join('\n');
+    'Please reach out to sarah@atlantafinehomes.com or daniel@atlantafinehomes.com for any further assistance.',
+  ].filter((line) => line !== null).join('\n');
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -293,7 +462,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, detailUrl, re
             </td>
           </tr>
 
-          <!-- Urgency banner -->
+          <!-- Stage banner -->
           <tr>
             <td style="${styleAttr({
               backgroundColor: colors.bg,
@@ -306,7 +475,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, detailUrl, re
               textTransform: 'uppercase',
               borderBottom: `1px solid ${BRAND.border}`,
             })}">
-              ${escapeHtml(label)}
+              ${escapeHtml(bannerLabel)}
             </td>
           </tr>
 
@@ -332,36 +501,41 @@ export function renderRenewalReminder({ license, daysUntilRenewal, detailUrl, re
               </h1>
 
               <p style="${styleAttr({
-                margin: '0 0 24px 0',
+                margin: '0 0 22px 0',
                 fontFamily: FONT_STACK,
                 fontSize: '15px',
                 lineHeight: '1.6',
                 color: BRAND.ink,
               })}">
-                ${escapeHtml(message)}
+                ${escapeHtml(content.message)}
               </p>
+
+              ${checklistBlock(content.listHeading, content.listItems, colors.accent)}
 
               <!-- Info table -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${styleAttr({
                 border: `1px solid ${BRAND.border}`,
                 borderRadius: '6px',
                 borderCollapse: 'separate',
-                marginBottom: '24px',
+                marginBottom: '22px',
               })}">
                 ${infoRow('Application', application)}
                 ${vendor ? infoRow('Vendor', vendor) : ''}
                 ${infoRow('Department', department)}
-                ${infoRow('Renewal date', renewalDate)}
+                ${infoRow('Term', term)}
+                ${infoRow('Current cost', costDisplay)}
+                ${infoRow('Renewal date', renewalDateText)}
                 ${infoRow('Renewal method', method)}
-                ${infoRow('Amount on file', amount)}
                 ${seats ? infoRow('Seats', seats) : ''}
               </table>
+
+              ${updateStepsBox(url)}
 
               <!-- CTA -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td align="center" style="padding: 8px 0 4px 0;">
-                    ${buttonCell(url, 'Review in Application Tracker')}
+                  <td align="center" style="padding: 4px 0 4px 0;">
+                    ${buttonCell(url, 'Open in Application Tracker')}
                   </td>
                 </tr>
                 <tr>
@@ -390,10 +564,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, detailUrl, re
               color: BRAND.inkSoft,
               lineHeight: '1.6',
             })}">
-              This is an automated reminder from the Atlanta Fine Homes Application Tracker.<br />
-              Records are sourced from Monday.com and resynced every 30 seconds.<br />
-              Questions or want to unsubscribe? Email
-              <a href="mailto:daniel@atlantafinehomes.com" style="color: ${BRAND.navy}; text-decoration: underline;">daniel@atlantafinehomes.com</a>.
+              Please reach out to <a href="mailto:sarah@atlantafinehomes.com" style="color: ${BRAND.navy}; text-decoration: underline;">sarah@atlantafinehomes.com</a> or <a href="mailto:daniel@atlantafinehomes.com" style="color: ${BRAND.navy}; text-decoration: underline;">daniel@atlantafinehomes.com</a> for any further assistance.
             </td>
           </tr>
 
@@ -408,10 +579,10 @@ export function renderRenewalReminder({ license, daysUntilRenewal, detailUrl, re
 }
 
 /**
- * Render an admin test email — same brand chrome, no renewal data.
+ * Render an admin test email - same brand chrome, no renewal data.
  */
 export function renderAdminTest({ subject, message, requestedBy }) {
-  const safeSubject = subject || 'Application Tracker — pipeline test';
+  const safeSubject = subject || 'Application Tracker - pipeline test';
   const safeMessage = message || 'This is a test email from the Atlanta Fine Homes Application Tracker confirming ACS delivery is working.';
 
   const plainText = [
@@ -420,7 +591,7 @@ export function renderAdminTest({ subject, message, requestedBy }) {
     requestedBy ? `Triggered by: ${requestedBy}` : null,
     `Sent at: ${new Date().toISOString()}`,
     '',
-    `— Atlanta Fine Homes Application Tracker`,
+    `- Atlanta Fine Homes Application Tracker`,
   ].filter(Boolean).join('\n');
 
   const html = `<!DOCTYPE html>

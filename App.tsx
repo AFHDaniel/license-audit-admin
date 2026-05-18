@@ -160,6 +160,18 @@ const App: React.FC = () => {
     setRefreshNonce((current) => current + 1);
   };
 
+  // After a renewal writeback, the proxy returns the freshly re-fetched item.
+  // Patch it into state immediately so derived figures (annual/monthly cost,
+  // status) refresh on the spot instead of lagging until the next 30s poll.
+  const handleLicenseUpdated = (updated: License | null) => {
+    if (updated) {
+      setLicenses((current) =>
+        current.map((license) => (license.id === updated.id ? updated : license)),
+      );
+    }
+    refreshLicensesNow();
+  };
+
   const removeSoftware = (id: string) => {
     void id;
     toast.info(
@@ -263,7 +275,6 @@ const App: React.FC = () => {
         return (
           <Dashboard
             licenses={scopedLicenses}
-            allLicenses={licenses}
             onNavigateInventory={openInventoryWithPreset}
             onSelectLicense={openLicenseDetail}
             onOpenDepartmentAnalytics={openAnalyticsDepartmentMetrics}
@@ -293,7 +304,7 @@ const App: React.FC = () => {
         );
       case View.EXPORT:
         return (
-          <ExportReports licenses={scopedLicenses} allowedDepartments={allowedDeptStrings} />
+          <ExportReports licenses={scopedLicenses} />
         );
       case View.LICENSE_DETAIL:
         return (
@@ -303,7 +314,7 @@ const App: React.FC = () => {
             isSyncing={syncLoading && licenses.length === 0}
             onBack={closeLicenseDetail}
             onOpenInventory={openInventoryWithPreset}
-            onLicenseUpdated={refreshLicensesNow}
+            onLicenseUpdated={handleLicenseUpdated}
           />
         );
       case View.SETTINGS: {
@@ -333,7 +344,7 @@ const App: React.FC = () => {
         );
       }
       default:
-        return <Dashboard licenses={scopedLicenses} allLicenses={licenses} />;
+        return <Dashboard licenses={scopedLicenses} />;
     }
   };
 

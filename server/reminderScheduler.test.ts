@@ -53,21 +53,20 @@ test('selectLicensesForReminder skips licenses with non-firing renewal types', (
   assert.deepEqual(result.map((r) => r.license.id).sort(), ['autoRenew', 'fire']);
 });
 
-test('selectLicensesForReminder fires on negative days for overdue escalations', () => {
+test('selectLicensesForReminder fires through day-0 but never past expiration', () => {
   const now = new Date('2026-05-13T18:00:00Z');
   const licenses = [
     { id: 'p90', renewalDate: isoDaysFromNow(90, now) },
     { id: 'p60', renewalDate: isoDaysFromNow(60, now) },
+    { id: 'p30', renewalDate: isoDaysFromNow(30, now) },
     { id: 'd0', renewalDate: isoDaysFromNow(0, now) },
-    { id: 'm30', renewalDate: isoDaysFromNow(-30, now) },
-    { id: 'm60', renewalDate: isoDaysFromNow(-60, now) },
-    { id: 'm90', renewalDate: isoDaysFromNow(-90, now) },
-    { id: 'm91', renewalDate: isoDaysFromNow(-91, now) },
+    { id: 'overdue1', renewalDate: isoDaysFromNow(-1, now) },
+    { id: 'overdue30', renewalDate: isoDaysFromNow(-30, now) },
   ];
-  const result = selectLicensesForReminder(licenses as never[], [90, 60, 1, -1, -30, -60, -90], now);
+  const result = selectLicensesForReminder(licenses as never[], [90, 60, 30, 0], now);
   assert.deepEqual(
     result.map((r) => r.license.id).sort(),
-    ['m30', 'm60', 'm90', 'p60', 'p90'],
+    ['d0', 'p30', 'p60', 'p90'],
   );
 });
 
