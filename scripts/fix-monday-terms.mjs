@@ -6,8 +6,10 @@
 // DRY RUN by default - prints the changes it would make. Pass --apply to
 // actually write them back to Monday. Credentials come from .env.local.
 //
-// Only the unambiguous synonym fixes are mapped here. Genuinely different
-// terms ("3 Year", "Both", "N/A") are left alone - those need a human call.
+// Only canonical-form fixes are mapped here - each target is a synonym the
+// classifier already treats identically, so these are cosmetic consistency
+// changes, not semantic ones. Genuinely ambiguous terms ("Both", "No
+// Contract", "N/A") are left alone - those need a human call.
 //
 
 import fs from 'node:fs';
@@ -38,6 +40,9 @@ if (!TOKEN || BOARD_IDS.length === 0) {
 const VERBIAGE_MAP = new Map([
   ['yearly', 'Annually'],
   ['annual', 'Annually'],
+  ['12 month', 'Annually'],
+  ['3 year', 'Multi-Year'],
+  ['month to month', 'Month-to-month'],
 ]);
 
 const TERM_TITLE = /(length|term|contract|billing|frequency)/i;
