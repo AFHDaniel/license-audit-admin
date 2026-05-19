@@ -15,7 +15,6 @@ import {
   getPendingRenewalsCount,
   getTotalAnnualCost,
   getTotalMonthlyCost,
-  isUndatedByDesign,
 } from '../utils/licenseMetrics';
 
 interface DashboardProps {
@@ -94,11 +93,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     }).length,
     [licenses],
   );
-  const noDateCount = useMemo(
-    () => licenses.filter((l) => getDaysUntilRenewal(l) == null && !isUndatedByDesign(l)).length,
-    [licenses],
-  );
-
   const maxDeptSpend = departmentData[0]?.annualSpend || 1;
 
   return (
@@ -112,7 +106,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       </motion.div>
 
       {/* Attention strip — only renders if there's something actionable */}
-      {(overdueCount > 0 || pending30 > 0 || noDateCount > 0) && (
+      {(overdueCount > 0 || pending30 > 0) && (
         <motion.div
           {...fadeUp(0.05)}
           className="flex items-center gap-2 flex-wrap rounded-md border border-border bg-secondary/40 px-3 py-2"
@@ -146,20 +140,6 @@ const Dashboard: React.FC<DashboardProps> = ({
               className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 text-[11px] font-medium hover:bg-amber-500/15 transition-colors"
             >
               <span className="tabular-nums">{pending30}</span> due in 30 days
-            </button>
-          )}
-          {noDateCount > 0 && (
-            <button
-              type="button"
-              onClick={() =>
-                onNavigateInventory?.({
-                  renewalWindow: 'NO_DATE',
-                  contextLabel: 'Dashboard: missing renewal date',
-                })
-              }
-              className="inline-flex items-center gap-1 rounded-full bg-secondary text-muted-foreground px-2 py-0.5 text-[11px] font-medium hover:text-foreground transition-colors"
-            >
-              <span className="tabular-nums">{noDateCount}</span> missing date
             </button>
           )}
         </motion.div>

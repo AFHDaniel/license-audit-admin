@@ -86,16 +86,17 @@ test('classifyRenewal: blank-type legacy rows fall back to free-text signals', (
   assert.equal(classifyRenewal({ rawDate: 'N/A', now: NOW }).renewalClass, 'undated-by-design');
 });
 
-test('classifyRenewal: a record that should have a date but does not is missing', () => {
+test('classifyRenewal: a record with no date renews on its term, never "missing"', () => {
   const r = classifyRenewal({ renewalType: 'Fixed Date', rawDate: '', length: 'Annually', now: NOW });
-  assert.equal(r.renewalClass, 'missing');
+  assert.equal(r.renewalClass, 'undated-by-design');
   assert.equal(r.renewalDateISO, null);
-  assert.equal(r.renewalDateDisplay, '');
+  assert.equal(r.renewalDateDisplay, 'Annually');
 });
 
-test('classifyRenewal: Fixed Date with unparseable free text is missing, not dated', () => {
+test('classifyRenewal: unparseable free text falls back to the term, never "missing"', () => {
   const r = classifyRenewal({ renewalType: 'Fixed Date', rawDate: 'See Notes', length: 'Annually', now: NOW });
-  assert.equal(r.renewalClass, 'missing');
+  assert.equal(r.renewalClass, 'undated-by-design');
+  assert.equal(r.renewalDateDisplay, 'Annually');
 });
 
 test('classifyRenewal: never emits the legacy "TBD" sentinel', () => {

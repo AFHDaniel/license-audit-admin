@@ -126,7 +126,7 @@ export interface License {
   // null when the record has no renewal date. Drives every days-until calc.
   renewalDateISO?: string | null;
   // How the proxy resolved the renewal columns. See server/renewalClassifier.mjs.
-  renewalClass?: 'dated' | 'projected' | 'undated-by-design' | 'missing';
+  renewalClass?: 'dated' | 'projected' | 'undated-by-design';
   renewalType?: 'Fixed Date' | 'Auto-renew' | 'Month-to-month' | 'Until Cancelled' | 'One-time' | 'Externally Managed' | 'Pending' | string;
   seats: string;
   useCase: string;
@@ -140,7 +140,7 @@ export interface License {
   parentItemId?: string;
   coOwners?: LicenseCoOwner[];
   riskLevel: 'Low Risk' | 'Medium Risk' | 'High Risk';
-  status: 'Healthy' | 'Over-provisioned' | 'Warning' | 'Term Information Missing';
+  status: 'Healthy' | 'Over-provisioned' | 'Warning';
 }
 
 export type BillingCadence = 'Annual' | 'Quarterly' | 'Monthly' | 'Multi-Year' | 'Other' | 'Unknown';

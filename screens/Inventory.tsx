@@ -402,7 +402,6 @@ const Inventory: React.FC<InventoryProps> = ({
                     ['Warning', 'Warning'],
                     ['Healthy', 'Healthy'],
                     ['Over-provisioned', 'Over-provisioned'],
-                    ['Term Information Missing', 'Term info missing'],
                   ],
                 },
               ].map((field) => (
@@ -559,7 +558,6 @@ const Inventory: React.FC<InventoryProps> = ({
                   const days = getDaysUntilRenewal(license);
                   const urgent = days != null && days <= 30 && days >= 0;
                   const overdue = days != null && days < 0;
-                  const termMissing = license.status === 'Term Information Missing';
                   const deptTheme = getDepartmentTheme(license.department);
 
                   return (
@@ -595,15 +593,13 @@ const Inventory: React.FC<InventoryProps> = ({
                       <td className="px-5 py-2.5 text-[12px] text-muted-foreground">{license.renewalDate || 'No date'}</td>
                       <td className="px-5 py-2.5">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                          termMissing
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                            : overdue
-                              ? 'bg-destructive/10 text-destructive'
-                              : urgent
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          overdue
+                            ? 'bg-destructive/10 text-destructive'
+                            : urgent
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                         }`}>
-                          {termMissing ? 'Term info missing' : overdue ? 'Overdue' : urgent ? 'Due soon' : license.status}
+                          {overdue ? 'Overdue' : urgent ? 'Due soon' : license.status}
                         </span>
                       </td>
                       <td className="px-5 py-2.5 text-right">

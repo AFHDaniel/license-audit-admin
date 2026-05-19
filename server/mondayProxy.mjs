@@ -590,12 +590,7 @@ function deriveRisk(daysRemaining) {
   return 'Low Risk';
 }
 
-function deriveStatus(daysRemaining, seats, renewalClass) {
-  // A record that should carry a renewal date but doesn't is flagged outright
-  // so it can't masquerade as Healthy on the dashboard.
-  if (renewalClass === 'missing') {
-    return 'Term Information Missing';
-  }
+function deriveStatus(daysRemaining, seats) {
   if (daysRemaining != null && daysRemaining <= 30) {
     return 'Warning';
   }
@@ -1263,7 +1258,7 @@ function mapMondayItem(item, options = {}) {
     parentItemId: parentItemId ? String(parentItemId) : undefined,
     coOwners,
     riskLevel,
-    status: deriveStatus(daysRemaining, seats, renewal.renewalClass),
+    status: deriveStatus(daysRemaining, seats),
   };
 }
 

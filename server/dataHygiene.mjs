@@ -18,8 +18,7 @@ import { classifyRenewal } from './renewalClassifier.mjs';
 const CLASS_META = {
   dated: { label: 'Has a real renewal date', severity: 'good' },
   projected: { label: 'Projected from contract term', severity: 'good' },
-  'undated-by-design': { label: 'No fixed renewal (by design)', severity: 'neutral' },
-  missing: { label: 'Term information missing', severity: 'bad' },
+  'undated-by-design': { label: 'Renews on a cycle (no fixed date)', severity: 'neutral' },
 };
 
 function coOwnerEmailCount(license) {
@@ -63,12 +62,11 @@ export function auditDataHygiene(licenses) {
   let withCoOwners = 0;
   let readyToFire = 0;
   let intentionallySilent = 0;
-  let needsClassification = 0;
   const needsAttention = [];
 
   for (const license of licenses) {
     const renewalClass = resolveRenewalClass(license);
-    const bucket = buckets[renewalClass] || buckets.missing;
+    const bucket = buckets[renewalClass] || buckets['undated-by-design'];
     bucket.count += 1;
     if (bucket.sampleIds.length < 5) bucket.sampleIds.push(license.id);
 
@@ -76,28 +74,9 @@ export function auditDataHygiene(licenses) {
     const hasCoOwner = coOwnerCount > 0;
     if (hasCoOwner) withCoOwners += 1;
 
-    // Undated by design — correctly has no reminders, nothing to fix.
+    // Undated by design — renews on a cycle, correctly has no reminders.
     if (renewalClass === 'undated-by-design') {
       intentionallySilent += 1;
-      continue;
-    }
-
-    const baseRow = {
-      id: license.id,
-      application: license.application || 'Unnamed',
-      department: license.department || '',
-      renewalDate: license.renewalDate || '',
-      dateBucket: renewalClass,
-      dateBucketLabel: CLASS_META[renewalClass]?.label || '',
-      hasCoOwner,
-      coOwnerCount,
-      amount: license.amount || 0,
-    };
-
-    // Missing a renewal date entirely — surfaces as "Term Information Missing".
-    if (renewalClass === 'missing') {
-      needsClassification += 1;
-      needsAttention.push({ ...baseRow, missing: hasCoOwner ? 'date' : 'date+co-owner' });
       continue;
     }
 
@@ -105,18 +84,23 @@ export function auditDataHygiene(licenses) {
     if (hasCoOwner) {
       readyToFire += 1;
     } else {
-      needsAttention.push({ ...baseRow, missing: 'co-owner' });
+      needsAttention.push({
+        id: license.id,
+        application: license.application || 'Unnamed',
+        department: license.department || '',
+        renewalDate: license.renewalDate || '',
+        dateBucket: renewalClass,
+        dateBucketLabel: CLASS_META[renewalClass]?.label || '',
+        hasCoOwner,
+        coOwnerCount,
+        amount: license.amount || 0,
+        missing: 'co-owner',
+      });
     }
   }
 
-  // Worst-off first: missing date + co-owner, then missing date, then co-owner;
-  // ties broken by spend so the most expensive gaps surface at the top.
-  const missingRank = { 'date+co-owner': 0, date: 1, 'co-owner': 2 };
-  needsAttention.sort((a, b) => {
-    const r = (missingRank[a.missing] ?? 99) - (missingRank[b.missing] ?? 99);
-    if (r !== 0) return r;
-    return (b.amount || 0) - (a.amount || 0);
-  });
+  // Most expensive gaps first.
+  needsAttention.sort((a, b) => (b.amount || 0) - (a.amount || 0));
 
   return {
     total: licenses.length,
@@ -124,7 +108,6 @@ export function auditDataHygiene(licenses) {
     withCoOwners,
     withRealDate: buckets.dated.count + buckets.projected.count,
     intentionallySilent,
-    needsClassification,
     buckets: Object.values(buckets).sort((a, b) => b.count - a.count),
     needsAttention,
     generatedAt: new Date().toISOString(),

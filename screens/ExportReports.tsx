@@ -299,7 +299,6 @@ const ExportReports: React.FC<ExportReportsProps> = ({ licenses }) => {
               <option value="Warning">Warning</option>
               <option value="Healthy">Healthy</option>
               <option value="Over-provisioned">Over-provisioned</option>
-              <option value="Term Information Missing">Term info missing</option>
             </select>
           </label>
         </div>

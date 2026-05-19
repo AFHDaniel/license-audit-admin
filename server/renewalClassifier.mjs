@@ -5,15 +5,19 @@
 // Every license resolves to exactly one renewalClass:
 //   - 'dated'              a real, parseable renewal date today or later
 //   - 'projected'          a real date that has lapsed, rolled forward by the
-//                          contract term to its next occurrence
-//   - 'undated-by-design'  no renewal date on purpose — until-cancelled,
-//                          month-to-month, externally managed, one-time
-//   - 'missing'            a record that should carry a date but doesn't;
-//                          surfaces in the UI as "Term Information Missing"
+//                          contract term to its next occurrence (an annual
+//                          contract renews a year on, a quarterly one a
+//                          quarter on, and so on)
+//   - 'undated-by-design'  no fixed renewal day — it renews on a cycle
+//                          (monthly, until-cancelled, externally managed,
+//                          one-time). The Length / Term column says which.
 //
-// This replaces the old behaviour where an empty date was stamped the fake
-// sentinel "TBD" and unparseable free text ("N/A", "Managed by Cortavo") was
-// passed straight through as if it were a date.
+// There is deliberately no "missing" class. The Monday Length column always
+// carries the term, so a record is never short of renewal information: it
+// either has a date or renews on a known cycle. This replaces the old
+// behaviour where an empty date was stamped the fake sentinel "TBD" and
+// unparseable free text ("N/A", "Managed by Cortavo") was passed straight
+// through as if it were a date.
 //
 
 // Renewal Type values that mean "no fixed renewal date, on purpose". The value
@@ -98,7 +102,7 @@ function projectForward(date, length, today) {
 /**
  * Classify a record's renewal columns.
  * @param {{ renewalType?: string, rawDate?: string, length?: string, now?: Date }} input
- * @returns {{ renewalClass: 'dated'|'projected'|'undated-by-design'|'missing',
+ * @returns {{ renewalClass: 'dated'|'projected'|'undated-by-design',
  *             renewalDateISO: string|null, renewalDateDisplay: string }}
  */
 export function classifyRenewal({ renewalType, rawDate, length, now = new Date() } = {}) {
@@ -117,7 +121,7 @@ export function classifyRenewal({ renewalType, rawDate, length, now = new Date()
 
   const parsed = parseRenewalDate(raw);
 
-  // 2. No parseable date on the record.
+  // 2. No parseable date — the record renews on a cycle, not a fixed day.
   if (!parsed) {
     // Legacy rows with a blank Renewal Type but free text that itself reads
     // "until cancelled" / "managed by X" / "n/a" are undated by design.
@@ -126,8 +130,13 @@ export function classifyRenewal({ renewalType, rawDate, length, now = new Date()
         return { renewalClass: 'undated-by-design', renewalDateISO: null, renewalDateDisplay: label };
       }
     }
-    // Genuinely no date on a record that should have one.
-    return { renewalClass: 'missing', renewalDateISO: null, renewalDateDisplay: '' };
+    // No fixed renewal day. The term (Monthly / Annually / ...) is the
+    // renewal information — show that rather than inventing a missing flag.
+    return {
+      renewalClass: 'undated-by-design',
+      renewalDateISO: null,
+      renewalDateDisplay: String(length || '').trim(),
+    };
   }
 
   // 3. A real date that is today or still in the future.

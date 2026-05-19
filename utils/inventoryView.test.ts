@@ -109,12 +109,12 @@ test('filterAndSortLicenses applies ascending and descending amount sorting', ()
   assert.deepEqual(descResult.map((license) => license.id), ['1', '3', '2']);
 });
 
-test('NO_DATE filter excludes licenses that are undated by design', () => {
+test('NO_DATE filter keeps the cycle-based (no fixed date) records', () => {
   const withSpecialDates: License[] = [
-    { ...licenses[0], id: 'genuinely-blank', renewalDate: 'TBD' },
-    { ...licenses[0], id: 'until-cancelled', renewalDate: 'Until Cancelled' },
-    { ...licenses[0], id: 'managed', renewalDate: 'Managed by Cortago' },
-    { ...licenses[0], id: 'has-date', renewalDate: '2026-08-31' },
+    { ...licenses[0], id: 'monthly', renewalClass: 'undated-by-design', renewalDate: 'Monthly' },
+    { ...licenses[0], id: 'until-cancelled', renewalClass: 'undated-by-design', renewalDate: 'Until cancelled' },
+    { ...licenses[0], id: 'dated', renewalClass: 'dated', renewalDate: '2026-08-31', renewalDateISO: '2026-08-31' },
+    { ...licenses[0], id: 'projected', renewalClass: 'projected', renewalDate: 'Mar 10, 2027', renewalDateISO: '2027-03-10' },
   ];
 
   const result = filterAndSortLicenses(withSpecialDates, {
@@ -122,7 +122,7 @@ test('NO_DATE filter excludes licenses that are undated by design', () => {
     selectedRenewalWindow: 'NO_DATE',
   });
 
-  // Only the genuinely-blank row should match — the by-design rows and the
-  // row with a real date are excluded.
-  assert.deepEqual(result.map((license) => license.id), ['genuinely-blank']);
+  // NO_DATE means "renews on a cycle" — the undated-by-design rows match;
+  // rows with a real or projected date do not.
+  assert.deepEqual(result.map((license) => license.id).sort(), ['monthly', 'until-cancelled']);
 });
