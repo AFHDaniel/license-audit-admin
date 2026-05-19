@@ -4,6 +4,7 @@ import {
   IconCurrencyDollar,
   IconCalendar,
   IconAlertTriangle,
+  IconDatabaseOff,
 } from '@tabler/icons-react';
 import { InventoryFilterPreset, License } from '../types';
 import {
@@ -93,6 +94,10 @@ const Dashboard: React.FC<DashboardProps> = ({
     }).length,
     [licenses],
   );
+  const dataMissingCount = useMemo(
+    () => licenses.filter((l) => l.status === 'Data Missing').length,
+    [licenses],
+  );
   const maxDeptSpend = departmentData[0]?.annualSpend || 1;
 
   return (
@@ -106,7 +111,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       </motion.div>
 
       {/* Attention strip — only renders if there's something actionable */}
-      {(overdueCount > 0 || pending30 > 0) && (
+      {(overdueCount > 0 || pending30 > 0 || dataMissingCount > 0) && (
         <motion.div
           {...fadeUp(0.05)}
           className="flex items-center gap-2 flex-wrap rounded-md border border-border bg-secondary/40 px-3 py-2"
@@ -142,11 +147,25 @@ const Dashboard: React.FC<DashboardProps> = ({
               <span className="tabular-nums">{pending30}</span> due in 30 days
             </button>
           )}
+          {dataMissingCount > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                onNavigateInventory?.({
+                  status: 'Data Missing',
+                  contextLabel: 'Dashboard: records missing data',
+                })
+              }
+              className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 text-[11px] font-medium hover:bg-amber-500/15 transition-colors"
+            >
+              <span className="tabular-nums">{dataMissingCount}</span> data missing
+            </button>
+          )}
         </motion.div>
       )}
 
-      {/* Stats — 3 numbers, not 4 */}
-      <motion.div {...fadeUp(0.1)} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* Stats */}
+      <motion.div {...fadeUp(0.1)} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="Monthly spend"
           value={formatCurrencyCompact(totalMonthly)}
@@ -171,6 +190,18 @@ const Dashboard: React.FC<DashboardProps> = ({
               quickFilter: 'UPCOMING_30',
               renewalWindow: 'UPCOMING_30',
               contextLabel: 'Dashboard: renewals due in 30 days',
+            })
+          }
+        />
+        <StatCard
+          label="Data missing"
+          value={String(dataMissingCount)}
+          subtitle={dataMissingCount > 0 ? 'No term or no cost on file' : 'All records complete'}
+          icon={<IconDatabaseOff />}
+          onClick={() =>
+            onNavigateInventory?.({
+              status: 'Data Missing',
+              contextLabel: 'Dashboard: records missing data',
             })
           }
         />

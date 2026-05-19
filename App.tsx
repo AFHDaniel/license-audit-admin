@@ -195,6 +195,14 @@ const App: React.FC = () => {
     if (activeView !== View.LICENSE_DETAIL) {
       setLastMainPath(viewToPath(activeView));
     }
+    // A drilldown filter preset is one-shot. Navigating to any other view via
+    // the sidebar ends the drilldown, so coming back to Inventory later starts
+    // clean instead of re-applying the stale preset on remount. (Bouncing into
+    // a License Detail and back still keeps the filter — that path doesn't
+    // run through here.)
+    if (view !== View.INVENTORY) {
+      setInventoryPreset(null);
+    }
     startTransition(() => {
       navigate(viewToPath(view));
     });
