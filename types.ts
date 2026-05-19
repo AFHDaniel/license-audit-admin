@@ -140,7 +140,7 @@ export interface License {
   parentItemId?: string;
   coOwners?: LicenseCoOwner[];
   riskLevel: 'Low Risk' | 'Medium Risk' | 'High Risk';
-  status: 'Healthy' | 'Over-provisioned' | 'Warning';
+  status: 'Healthy' | 'Over-provisioned' | 'Warning' | 'Data Missing';
 }
 
 export type BillingCadence = 'Annual' | 'Quarterly' | 'Monthly' | 'Multi-Year' | 'Other' | 'Unknown';

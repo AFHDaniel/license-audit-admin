@@ -5,6 +5,7 @@ import {
   IconArrowUp,
   IconArrowsUpDown,
   IconCalendarEvent,
+  IconChevronDown,
   IconCreditCard,
   IconEditCircle,
   IconFilter,
@@ -48,7 +49,14 @@ interface InventoryProps {
   allowedDepartments?: string[];
 }
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 25;
+
+// Shared styling for the form-style <select> controls. `appearance-none` drops
+// the native control (its min-height was clipping the text) so a custom
+// chevron and our own height/padding take over.
+const SELECT_CLASS =
+  'h-9 w-full appearance-none rounded-md border border-border bg-background pl-2.5 pr-8 text-[12px] text-foreground font-normal normal-case tracking-normal leading-normal cursor-pointer focus:border-ring focus:outline-none transition-colors';
 
 const fadeUp = (delay = 0) => ({
   initial: { opacity: 0, y: 16 },
@@ -96,6 +104,7 @@ const Inventory: React.FC<InventoryProps> = ({
   const [sortDirection, setSortDirection] = useState<InventorySortDirection>('ASC');
   const [drilldownContextLabel, setDrilldownContextLabel] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number | 'ALL'>(DEFAULT_PAGE_SIZE);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
@@ -167,22 +176,26 @@ const Inventory: React.FC<InventoryProps> = ({
     selectedRenewalWindow, selectedBillingCadence, sortField, sortDirection,
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredLicenses.length / PAGE_SIZE));
+  const effectivePageSize = pageSize === 'ALL'
+    ? Math.max(filteredLicenses.length, 1)
+    : pageSize;
+  const totalPages = Math.max(1, Math.ceil(filteredLicenses.length / effectivePageSize));
 
   useEffect(() => {
     setPage(1);
   }, [
     deferredSearch, quickFilter, selectedDepartments, selectedBoards,
     selectedCoOwnerEmails, selectedRisk, selectedStatus, selectedPayment,
-    selectedRenewalWindow, selectedBillingCadence, sortField, sortDirection, licenses.length,
+    selectedRenewalWindow, selectedBillingCadence, sortField, sortDirection,
+    licenses.length, pageSize,
   ]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const pageStart = (page - 1) * PAGE_SIZE;
-  const pageEnd = pageStart + PAGE_SIZE;
+  const pageStart = (page - 1) * effectivePageSize;
+  const pageEnd = pageStart + effectivePageSize;
   const paginatedLicenses = filteredLicenses.slice(pageStart, pageEnd);
 
   const handleHeaderSort = (field: InventorySortField) => {
@@ -340,7 +353,7 @@ const Inventory: React.FC<InventoryProps> = ({
             </div>
 
             {/* Dropdowns */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {[
                 {
                   label: 'Payment',
@@ -402,20 +415,24 @@ const Inventory: React.FC<InventoryProps> = ({
                     ['Warning', 'Warning'],
                     ['Healthy', 'Healthy'],
                     ['Over-provisioned', 'Over-provisioned'],
+                    ['Data Missing', 'Data Missing'],
                   ],
                 },
               ].map((field) => (
                 <label key={field.label} className="flex flex-col gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                   {field.label}
-                  <select
-                    value={field.value}
-                    onChange={(e) => field.onChange(e.target.value)}
-                    className="h-8 rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal focus:border-ring transition-colors"
-                  >
-                    {field.options.map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={field.value}
+                      onChange={(e) => field.onChange(e.target.value)}
+                      className={SELECT_CLASS}
+                    >
+                      {field.options.map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                    <IconChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  </div>
                 </label>
               ))}
             </div>
@@ -558,6 +575,7 @@ const Inventory: React.FC<InventoryProps> = ({
                   const days = getDaysUntilRenewal(license);
                   const urgent = days != null && days <= 30 && days >= 0;
                   const overdue = days != null && days < 0;
+                  const dataMissing = license.status === 'Data Missing';
                   const deptTheme = getDepartmentTheme(license.department);
 
                   return (
@@ -579,7 +597,6 @@ const Inventory: React.FC<InventoryProps> = ({
                             <span className="size-1 rounded-full" style={{ backgroundColor: deptTheme.dot }} />
                             {license.department}
                           </span>
-                          {license.sourceBoardName && <span className="truncate">{license.sourceBoardName}</span>}
                         </div>
                       </td>
                       <td className="px-5 py-2.5 text-[12px] font-medium text-foreground tabular-nums">{formatCurrency(license.amount)}</td>
@@ -597,7 +614,9 @@ const Inventory: React.FC<InventoryProps> = ({
                             ? 'bg-destructive/10 text-destructive'
                             : urgent
                               ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : dataMissing
+                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                         }`}>
                           {overdue ? 'Overdue' : urgent ? 'Due soon' : license.status}
                         </span>
@@ -646,10 +665,28 @@ const Inventory: React.FC<InventoryProps> = ({
           </div>
 
           {/* Pagination */}
-          <div className="flex items-center justify-between px-5 py-2.5 border-t border-border">
-            <p className="text-[11px] text-muted-foreground tabular-nums">
-              Showing {visibleStart}–{visibleEnd} of {filteredLicenses.length} records
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-2.5 border-t border-border">
+            <div className="flex items-center gap-3">
+              <p className="text-[11px] text-muted-foreground tabular-nums">
+                Showing {visibleStart}–{visibleEnd} of {filteredLicenses.length} records
+              </p>
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                Rows
+                <div className="relative">
+                  <select
+                    value={String(pageSize)}
+                    onChange={(e) => setPageSize(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
+                    className="h-7 appearance-none rounded-md border border-border bg-background pl-2 pr-7 text-[11px] text-foreground cursor-pointer focus:border-ring focus:outline-none transition-colors"
+                  >
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                    <option value="ALL">All</option>
+                  </select>
+                  <IconChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                </div>
+              </label>
+            </div>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"

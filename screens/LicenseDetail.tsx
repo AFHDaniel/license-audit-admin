@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   IconArrowLeft,
+  IconChevronDown,
   IconSearch,
   IconFilter,
   IconCurrencyDollar,
@@ -465,23 +466,26 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
                   <label key={field.key} className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {field.label}
                     {field.type === 'select' ? (
-                      <select
-                        value={field.value}
-                        onChange={(e) => field.setter(e.target.value)}
-                        className="h-8 rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal focus:border-ring transition-colors"
-                      >
-                        <option value="">Select...</option>
-                        {(field.options || []).map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          value={field.value}
+                          onChange={(e) => field.setter(e.target.value)}
+                          className="h-9 w-full appearance-none rounded-md border border-border bg-background pl-2.5 pr-8 text-[12px] text-foreground font-normal normal-case tracking-normal leading-normal cursor-pointer focus:border-ring focus:outline-none transition-colors"
+                        >
+                          <option value="">Select...</option>
+                          {(field.options || []).map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                        <IconChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      </div>
                     ) : (
                       <input
                         type={field.type}
                         value={field.value}
                         onChange={(e) => field.setter(e.target.value)}
                         placeholder={field.placeholder}
-                        className="h-8 rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal placeholder:text-muted-foreground focus:border-ring transition-colors"
+                        className="h-9 rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal placeholder:text-muted-foreground focus:border-ring transition-colors"
                       />
                     )}
                   </label>

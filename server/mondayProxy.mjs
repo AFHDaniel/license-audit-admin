@@ -590,7 +590,19 @@ function deriveRisk(daysRemaining) {
   return 'Low Risk';
 }
 
-function deriveStatus(daysRemaining, seats) {
+// A record with no billing term or no cost on file can't be reasoned about
+// (no cadence, no spend) — it should never sit quietly as "Healthy".
+function hasDataGap(length, amount) {
+  const term = String(length || '').trim().toLowerCase();
+  const noTerm = !term || term === 'unknown';
+  const noCost = !(Number.isFinite(amount) && amount > 0);
+  return noTerm || noCost;
+}
+
+function deriveStatus(daysRemaining, seats, dataMissing) {
+  if (dataMissing) {
+    return 'Data Missing';
+  }
   if (daysRemaining != null && daysRemaining <= 30) {
     return 'Warning';
   }
@@ -1258,7 +1270,7 @@ function mapMondayItem(item, options = {}) {
     parentItemId: parentItemId ? String(parentItemId) : undefined,
     coOwners,
     riskLevel,
-    status: deriveStatus(daysRemaining, seats),
+    status: deriveStatus(daysRemaining, seats, hasDataGap(lengthValue, amount)),
   };
 }
 
