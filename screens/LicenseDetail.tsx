@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   IconArrowLeft,
-  IconChevronDown,
   IconSearch,
   IconFilter,
   IconCurrencyDollar,
@@ -466,19 +465,16 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
                   <label key={field.key} className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {field.label}
                     {field.type === 'select' ? (
-                      <div className="relative">
-                        <select
-                          value={field.value}
-                          onChange={(e) => field.setter(e.target.value)}
-                          className="h-9 w-full appearance-none rounded-md border border-border bg-background pl-2.5 pr-8 text-[12px] text-foreground font-normal normal-case tracking-normal leading-normal cursor-pointer focus:border-ring focus:outline-none transition-colors"
-                        >
-                          <option value="">Select...</option>
-                          {(field.options || []).map((option) => (
-                            <option key={option} value={option}>{option}</option>
-                          ))}
-                        </select>
-                        <IconChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                      </div>
+                      <select
+                        value={field.value}
+                        onChange={(e) => field.setter(e.target.value)}
+                        className="h-9 w-full rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal cursor-pointer focus:border-ring transition-colors"
+                      >
+                        <option value="">Select...</option>
+                        {(field.options || []).map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
                     ) : (
                       <input
                         type={field.type}

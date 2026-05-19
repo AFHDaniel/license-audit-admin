@@ -5,7 +5,6 @@ import {
   IconArrowUp,
   IconArrowsUpDown,
   IconCalendarEvent,
-  IconChevronDown,
   IconCreditCard,
   IconEditCircle,
   IconFilter,
@@ -52,11 +51,11 @@ interface InventoryProps {
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 25;
 
-// Shared styling for the form-style <select> controls. `appearance-none` drops
-// the native control (its min-height was clipping the text) so a custom
-// chevron and our own height/padding take over.
+// Shared styling for the filter <select> controls. Native select keeps its
+// own dropdown arrow at a comfortable h-9 — no custom chevron, so there's no
+// risk of a doubled-up icon when a browser also renders the native one.
 const SELECT_CLASS =
-  'h-9 w-full appearance-none rounded-md border border-border bg-background pl-2.5 pr-8 text-[12px] text-foreground font-normal normal-case tracking-normal leading-normal cursor-pointer focus:border-ring focus:outline-none transition-colors';
+  'h-9 w-full rounded-md border border-border bg-background px-2.5 text-[12px] text-foreground font-normal normal-case tracking-normal cursor-pointer focus:border-ring transition-colors';
 
 const fadeUp = (delay = 0) => ({
   initial: { opacity: 0, y: 16 },
@@ -421,18 +420,15 @@ const Inventory: React.FC<InventoryProps> = ({
               ].map((field) => (
                 <label key={field.label} className="flex flex-col gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                   {field.label}
-                  <div className="relative">
-                    <select
-                      value={field.value}
-                      onChange={(e) => field.onChange(e.target.value)}
-                      className={SELECT_CLASS}
-                    >
-                      {field.options.map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
-                      ))}
-                    </select>
-                    <IconChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  </div>
+                  <select
+                    value={field.value}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    className={SELECT_CLASS}
+                  >
+                    {field.options.map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
                 </label>
               ))}
             </div>
@@ -672,19 +668,16 @@ const Inventory: React.FC<InventoryProps> = ({
               </p>
               <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 Rows
-                <div className="relative">
-                  <select
-                    value={String(pageSize)}
-                    onChange={(e) => setPageSize(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
-                    className="h-7 appearance-none rounded-md border border-border bg-background pl-2 pr-7 text-[11px] text-foreground cursor-pointer focus:border-ring focus:outline-none transition-colors"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((size) => (
-                      <option key={size} value={size}>{size}</option>
-                    ))}
-                    <option value="ALL">All</option>
-                  </select>
-                  <IconChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                </div>
+                <select
+                  value={String(pageSize)}
+                  onChange={(e) => setPageSize(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
+                  className="h-7 rounded-md border border-border bg-background px-2 text-[11px] text-foreground cursor-pointer focus:border-ring transition-colors"
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                  <option value="ALL">All</option>
+                </select>
               </label>
             </div>
             <div className="flex items-center gap-1.5">
