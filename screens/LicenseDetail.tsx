@@ -109,8 +109,10 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
   const [renewalDateInput, setRenewalDateInput] = useState('');
   const [seatsInput, setSeatsInput] = useState('');
   const [useCaseInput, setUseCaseInput] = useState('');
+  const [applicationInput, setApplicationInput] = useState('');
+  const [isEditingName, setIsEditingName] = useState(false);
   const initialRef = React.useRef({
-    amount: '', length: '', renewalMethod: '', renewalDate: '', seats: '', useCase: '',
+    amount: '', length: '', renewalMethod: '', renewalDate: '', seats: '', useCase: '', application: '',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -134,6 +136,7 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
     const initialDate = toDateInputValue(license.renewalDateISO || license.renewalDate);
     const initialSeats = license.seats || '';
     const initialUseCase = license.useCase || '';
+    const initialApplication = license.application || '';
 
     setAmountInput(initialAmount);
     setLengthInput(initialLength);
@@ -141,6 +144,7 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
     setRenewalDateInput(initialDate);
     setSeatsInput(initialSeats);
     setUseCaseInput(initialUseCase);
+    setApplicationInput(initialApplication);
 
     initialRef.current = {
       amount: initialAmount,
@@ -149,11 +153,39 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
       renewalDate: initialDate,
       seats: initialSeats,
       useCase: initialUseCase,
+      application: initialApplication,
     };
 
     setSaveError(null);
     setSaveSuccess(null);
   }, [license]);
+
+  const commitNameEdit = async () => {
+    setIsEditingName(false);
+    const trimmed = applicationInput.trim();
+    if (!trimmed || trimmed === license?.application) return;
+
+    const recordBoardId = license?.recordBoardId || license?.sourceBoardId || '';
+    if (!recordBoardId) {
+      setSaveError('This record is missing a Monday board reference.');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const result = await updateLicenseRenewal(license.id, {
+        recordBoardId,
+        application: trimmed,
+      }, { getAccessToken });
+      onLicenseUpdated?.(result.updated);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Failed to rename.');
+      setApplicationInput(license.application); // revert
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleRenewalSave = async () => {
     if (!license) return;
@@ -326,9 +358,32 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
 
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-display text-2xl tracking-tight text-foreground truncate">
-                {license.application}
-              </h1>
+              {isEditingName ? (
+                <input
+                  type="text"
+                  value={applicationInput}
+                  onChange={(e) => setApplicationInput(e.target.value)}
+                  onBlur={commitNameEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitNameEdit();
+                    if (e.key === 'Escape') {
+                      setApplicationInput(license.application);
+                      setIsEditingName(false);
+                    }
+                  }}
+                  className="font-display text-2xl tracking-tight bg-transparent border-b-2 border-accent text-foreground outline-none w-full min-w-[200px]"
+                  autoFocus
+                  ref={(el) => el?.select()}
+                />
+              ) : (
+                <h1
+                  className="font-display text-2xl tracking-tight text-foreground truncate cursor-pointer hover:text-accent transition-colors"
+                  onClick={() => setIsEditingName(true)}
+                  title="Click to rename"
+                >
+                  {license.application}
+                </h1>
+              )}
               <span
                 className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
                 style={{ backgroundColor: departmentTheme.softBg, borderColor: departmentTheme.border, color: departmentTheme.text }}
