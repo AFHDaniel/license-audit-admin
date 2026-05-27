@@ -145,3 +145,21 @@ test('mixed-type board produces per-column correct shapes in one call', () => {
     plain_seats: '10',
   });
 });
+
+test('resolves application column by name-title match and returns plain string', () => {
+  const columns = [
+    { id: 'name', title: 'Item', type: 'name' },
+    { id: 'other', title: 'Description', type: 'text' },
+  ];
+  const payload = buildMondayColumnValuesPayload(columns, { application: 'New App Name' });
+  assert.deepEqual(payload, { name: 'New App Name' });
+});
+
+test('resolves application column by title alias match (Application)', () => {
+  const columns = [
+    { id: 'c1', title: 'Description', type: 'text' },
+    { id: 'c2', title: 'Application', type: 'text' },
+  ];
+  const payload = buildMondayColumnValuesPayload(columns, { application: 'Renamed App' });
+  assert.deepEqual(payload, { c2: 'Renamed App' });
+});
