@@ -5,6 +5,7 @@ const COLUMN_TITLE_ALIASES = {
   renewalDate: ['Renewal Date', 'Renew Date', 'Next Renewal', 'Renews On', 'Expiration Date', 'Expiry Date', 'End Date', 'Contract End'],
   seats: ['Seats', 'Licenses', 'Seat Count', 'License Count', 'Quantity', 'Qty'],
   useCase: ['Use Case', 'Usecase', 'Purpose', 'Description', 'Business Use', 'Function'],
+  application: ['Name', 'Item', 'Application', 'Title', 'App Name', 'Item Name', 'Task name'],
 };
 
 function normalizeColumnTitle(value) {
@@ -106,6 +107,7 @@ const FIELD_ORDER = [
   ['renewalDate', (updates) => updates.renewalDate],
   ['seats', (updates) => updates.seats],
   ['useCase', (updates) => updates.useCase],
+  ['application', (updates) => updates.application],
 ];
 
 export function buildMondayColumnValuesPayload(columns, updates, preferredColumnIds = {}) {
