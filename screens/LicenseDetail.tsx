@@ -14,6 +14,7 @@ import {
   IconRefresh,
   IconAlertCircle,
   IconLoader2,
+  IconPencil,
 } from '@tabler/icons-react';
 import { InventoryFilterPreset, License } from '../types';
 import { updateLicenseRenewal } from '../services/licensesApi';
@@ -371,17 +372,18 @@ const LicenseDetail: React.FC<LicenseDetailProps> = ({
                       setIsEditingName(false);
                     }
                   }}
-                  className="font-display text-2xl tracking-tight bg-transparent border-b-2 border-accent text-foreground outline-none w-full min-w-[200px]"
+                  className="font-display text-2xl tracking-tight bg-transparent border-b border-accent text-foreground outline-none"
+                  style={{ width: `${Math.max(applicationInput.length || license.application.length, 8)}ch` }}
                   autoFocus
                   ref={(el) => el?.select()}
                 />
               ) : (
                 <h1
-                  className="font-display text-2xl tracking-tight text-foreground truncate cursor-pointer hover:text-accent transition-colors"
+                  className="group font-display text-2xl tracking-tight text-foreground truncate cursor-pointer inline-flex items-center gap-1.5"
                   onClick={() => setIsEditingName(true)}
-                  title="Click to rename"
                 >
                   {license.application}
+                  <IconPencil className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                 </h1>
               )}
               <span
