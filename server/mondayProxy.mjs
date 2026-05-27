@@ -1126,7 +1126,7 @@ function validateRenewalUpdates(updates) {
   if (updates.renewalDate != null && typeof updates.renewalDate !== 'string') {
     throw new Error('Renewal date must be a string.');
   }
-  for (const field of ['length', 'renewalMethod', 'seats', 'useCase']) {
+  for (const field of ['application', 'length', 'renewalMethod', 'seats', 'useCase']) {
     if (updates[field] != null && typeof updates[field] !== 'string') {
       throw new Error(`${field} must be a string.`);
     }
@@ -2128,6 +2128,7 @@ const server = createServer(async (req, res) => {
       const itemId = decodeURIComponent(url.pathname.split('/')[3] || '');
       const body = await readJson(req);
       const result = await updateLicenseRenewal(itemId, body?.recordBoardId, {
+        application: body?.application,
         amount: body?.amount,
         length: body?.length,
         renewalMethod: body?.renewalMethod,
