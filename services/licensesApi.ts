@@ -18,6 +18,7 @@ export interface FetchLicensesOptions {
 
 export interface UpdateLicenseRenewalRequest {
   recordBoardId: string;
+  application?: string;
   amount?: number | null;
   length?: string;
   renewalMethod?: string;
