@@ -178,6 +178,7 @@ function stageContent(stage, application, renewalDateText) {
       };
     case '30-day':
       return {
+        subject: `[ACTION REQUIRED] ${application} renews in 30 days`,
         subjectPrefix: 'Action needed',
         subjectTail: 'renews in 30 days',
         message: `Our records show ${application} renews in 30 days, on ${renewalDateText}. Connect with your vendor contact to confirm pricing and terms for the upcoming period.`,
@@ -202,6 +203,7 @@ function stageContent(stage, application, renewalDateText) {
     case 'post-expiration':
     default:
       return {
+        subject: `[ACTION REQUIRED] ${application} is past its renewal date`,
         subjectPrefix: 'Still need an update',
         subjectTail: 'is past its renewal date',
         message: `Our records show ${application} is past its renewal date, ${renewalDateText}. As the owner of this application, you are the source of truth. We need an updated entry to keep our application records and spend reporting accurate.`,
@@ -298,6 +300,32 @@ function checklistBlock(heading, items, accent) {
     </table>`;
 }
 
+// Offer-to-help box shown on the earlier (90/30-day) reminders, when there is
+// still time to benchmark and negotiate. Static copy only - no user input.
+const HELP_TEXT = 'We can assist with benchmarking cost, weighing alternatives, and connecting with the vendor to negotiate before you renew. Just reply to this email with your latest vendor invoice or current agreement.';
+
+function helpBox() {
+  return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${styleAttr({
+      backgroundColor: BRAND.cream,
+      border: `1px solid ${BRAND.border}`,
+      borderRadius: '6px',
+      marginBottom: '20px',
+    })}">
+      <tr>
+        <td style="${styleAttr({
+          padding: '16px 18px',
+          fontFamily: FONT_STACK,
+          fontSize: '14px',
+          lineHeight: '1.55',
+          color: BRAND.ink,
+        })}">
+          <strong style="${styleAttr({ color: BRAND.navy })}">We are here to help.</strong> ${HELP_TEXT}
+        </td>
+      </tr>
+    </table>`;
+}
+
 // The "how to update" steps box.
 function updateStepsBox(url) {
   const step = (n, text) => `
@@ -379,6 +407,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, stage, detail
     : (formatCurrency(license.amount) || 'Not on file');
 
   const content = stageContent(resolvedStage, application, renewalDateText);
+  const showHelp = resolvedStage === '90-day' || resolvedStage === '30-day';
   const subject = content.subject || `${content.subjectPrefix}: ${application} ${content.subjectTail}`;
 
   const plainText = [
@@ -404,6 +433,8 @@ export function renderRenewalReminder({ license, daysUntilRenewal, stage, detail
     '  3. Hit Save - it writes straight back to Monday.',
     url,
     '',
+    showHelp ? `We are here to help. ${HELP_TEXT}` : null,
+    showHelp ? '' : null,
     'Please reach out to sarah@atlantafinehomes.com or daniel@atlantafinehomes.com for any further assistance.',
   ].filter((line) => line !== null).join('\n');
 
@@ -532,6 +563,8 @@ export function renderRenewalReminder({ license, daysUntilRenewal, stage, detail
               </table>
 
               ${updateStepsBox(url)}
+
+              ${showHelp ? helpBox() : ''}
 
               <!-- CTA -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">

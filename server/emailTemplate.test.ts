@@ -53,7 +53,7 @@ test('60-day reminder nudges toward a pricing review', () => {
 
 test('30-day reminder is action-oriented', () => {
   const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 20 });
-  assert.match(result.subject, /^Action needed: Slack Business\+/);
+  assert.match(result.subject, /^\[ACTION REQUIRED\] Slack Business\+ renews in 30 days/);
   assert.match(result.html, /RENEWS IN 20 DAYS &middot; ACTION NEEDED|RENEWS IN 20 DAYS . ACTION NEEDED/);
   assert.match(result.plainText, /already handled the renewal/);
 });
@@ -67,7 +67,7 @@ test('expiration reminder fires on the renewal date', () => {
 
 test('post-expiration reminder asks to refresh the record', () => {
   const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: -45 });
-  assert.match(result.subject, /^Still need an update: Slack Business\+/);
+  assert.match(result.subject, /^\[ACTION REQUIRED\] Slack Business\+ is past its renewal date/);
   assert.match(result.html, /45 DAYS PAST DUE/);
   assert.match(result.plainText, /you are the source of truth/);
 });
