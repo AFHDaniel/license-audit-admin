@@ -195,7 +195,7 @@ function stageContent(stage, application, renewalDateText) {
         message: `Our records show ${application} renews today, ${renewalDateText}. We need an updated entry to keep our application records and spend reporting accurate.`,
         listHeading: 'Please let us know:',
         listItems: [
-          'If you renewed this application, please click the link below and update the renewal date, term, and cost in the tracker.',
+          'If you renewed this application, open the record in Application Tracker (see button below) and update the renewal date, term, and cost.',
           'If you decided not to renew and are discontinuing this platform, please reply to this email and we will mark it inactive.',
         ],
       };
