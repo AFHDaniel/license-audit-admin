@@ -46,7 +46,7 @@ test('90-day reminder is a friendly heads-up that mentions negotiating', () => {
 
 test('60-day reminder nudges toward a pricing review', () => {
   const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 45 });
-  assert.match(result.subject, /^Renewal in 2 months: Slack Business\+/);
+  assert.match(result.subject, /^Renewal in 60 days: Slack Business\+/);
   assert.match(result.html, /RENEWS IN 45 DAYS/);
   assert.match(result.plainText, /Worth checking before it renews/);
 });

@@ -166,10 +166,11 @@ function stageContent(stage, application, renewalDateText) {
       };
     case '60-day':
       return {
+        subject: `Renewal in 60 days: ${application}`,
         subjectPrefix: 'Renewal in 2 months',
         subjectTail: 'a good time to review pricing',
-        message: `Our records show ${application} renews on ${renewalDateText} - roughly two months away. If you haven't already started the conversation with the vendor, now is the time to reach out and negotiate pricing before the renewal locks in.`,
-        listHeading: 'Worth checking before it renews:',
+        message: `Our records show ${application} renews on ${renewalDateText}. If you haven't already started the conversation with the vendor, now is the time to reach out and negotiate pricing.`,
+        listHeading: 'It is a good time to consider:',
         listItems: [
           "Are you still using everything you're paying for - seats, tier, add-ons?",
           'Has the vendor raised the price since last year?',
@@ -407,7 +408,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, stage, detail
     : (formatCurrency(license.amount) || 'Not on file');
 
   const content = stageContent(resolvedStage, application, renewalDateText);
-  const showHelp = resolvedStage === '90-day' || resolvedStage === '30-day';
+  const showHelp = resolvedStage === '90-day' || resolvedStage === '60-day' || resolvedStage === '30-day';
   const subject = content.subject || `${content.subjectPrefix}: ${application} ${content.subjectTail}`;
 
   const plainText = [
