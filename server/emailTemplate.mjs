@@ -139,7 +139,7 @@ function stageBannerLabel(stage, daysUntilRenewal) {
     case '30-day':
       return Number.isFinite(days) ? `RENEWS IN ${days} DAYS · ACTION NEEDED` : 'RENEWS SOON · ACTION NEEDED';
     case 'expiration':
-      return 'REACHED ITS RENEWAL DATE TODAY';
+      return 'REACHED ITS RENEWAL';
     case 'post-expiration':
     default:
       return Number.isFinite(days) && abs > 0
@@ -191,12 +191,12 @@ function stageContent(stage, application, renewalDateText) {
     case 'expiration':
       return {
         subjectPrefix: 'Renewal date today',
-        subjectTail: 'reached its renewal date',
-        message: `Our records show ${application} reached its renewal date today (${renewalDateText}). We need an updated entry to keep our application records and spend reporting accurate.`,
+        subjectTail: 'reached its renewal',
+        message: `Our records show ${application} renews today, ${renewalDateText}. We need an updated entry to keep our application records and spend reporting accurate.`,
         listHeading: 'Please let us know:',
         listItems: [
-          'If it renewed - update the new renewal date, term, and cost in the tracker.',
-          'If it is being dropped - reply to this email so we can mark it inactive.',
+          'If you renewed this application, please click the link below and update the renewal date, term, and cost in the tracker.',
+          'If you decided not to renew and are discontinuing this platform, please reply to this email and we will mark it inactive.',
         ],
       };
     case 'post-expiration':
@@ -204,7 +204,7 @@ function stageContent(stage, application, renewalDateText) {
       return {
         subjectPrefix: 'Still need an update',
         subjectTail: 'is past its renewal date',
-        message: `We are still showing ${application} as past its renewal date (${renewalDateText}) with no updated information. This is a monthly reminder until the record is refreshed. As the owner of this application you are our source of truth for it - a current record helps the whole company see what we use and what we spend, and helps us support you at renewal time.`,
+        message: `Our records show ${application} is past its renewal date, ${renewalDateText}. As the owner of this application, you are the source of truth. We need an updated entry to keep our application records and spend reporting accurate.`,
         listHeading: 'It only takes a minute:',
         listItems: [
           'Update the renewal date, term, and cost in the tracker.',

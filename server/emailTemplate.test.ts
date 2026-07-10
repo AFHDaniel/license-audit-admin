@@ -61,15 +61,15 @@ test('30-day reminder is action-oriented', () => {
 test('expiration reminder fires on the renewal date', () => {
   const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 0 });
   assert.match(result.subject, /^Renewal date today: Slack Business\+/);
-  assert.match(result.html, /REACHED ITS RENEWAL DATE TODAY/);
-  assert.match(result.plainText, /reached its renewal date today/);
+  assert.match(result.html, /REACHED ITS RENEWAL/);
+  assert.match(result.plainText, /renews today/);
 });
 
 test('post-expiration reminder asks to refresh the record', () => {
   const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: -45 });
   assert.match(result.subject, /^Still need an update: Slack Business\+/);
   assert.match(result.html, /45 DAYS PAST DUE/);
-  assert.match(result.plainText, /monthly reminder until the record is refreshed/);
+  assert.match(result.plainText, /you are the source of truth/);
 });
 
 test('an explicit stage override bypasses the day-count mapping', () => {
