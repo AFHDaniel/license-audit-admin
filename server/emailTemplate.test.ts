@@ -60,8 +60,8 @@ test('30-day reminder is action-oriented', () => {
 
 test('expiration reminder fires on the renewal date', () => {
   const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 0 });
-  assert.match(result.subject, /^Renewal date today: Slack Business\+/);
-  assert.match(result.html, /REACHED ITS RENEWAL/);
+  assert.match(result.subject, /^\[ACTION REQUIRED\] Slack Business\+ renews today/);
+  assert.match(result.html, /RENEWS TODAY/);
   assert.match(result.plainText, /renews today/);
 });
 

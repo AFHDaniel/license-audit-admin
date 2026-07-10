@@ -139,7 +139,7 @@ function stageBannerLabel(stage, daysUntilRenewal) {
     case '30-day':
       return Number.isFinite(days) ? `RENEWS IN ${days} DAYS · ACTION NEEDED` : 'RENEWS SOON · ACTION NEEDED';
     case 'expiration':
-      return 'REACHED ITS RENEWAL';
+      return 'RENEWS TODAY';
     case 'post-expiration':
     default:
       return Number.isFinite(days) && abs > 0
@@ -190,6 +190,7 @@ function stageContent(stage, application, renewalDateText) {
       };
     case 'expiration':
       return {
+        subject: `[ACTION REQUIRED] ${application} renews today`,
         subjectPrefix: 'Renewal date today',
         subjectTail: 'reached its renewal',
         message: `Our records show ${application} renews today, ${renewalDateText}. We need an updated entry to keep our application records and spend reporting accurate.`,
@@ -334,7 +335,7 @@ function updateStepsBox(url) {
             color: BRAND.navy,
           })}">Update it in under a minute</p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-            ${step(1, `Open the record in the Application Tracker - the button below takes you straight to it.`)}
+            ${step(1, `Open the record in the Application Tracker (see button below).`)}
             ${step(2, 'Update the renewal date, term, and cost.')}
             ${step(3, 'Hit <strong>Save</strong> - it writes straight back to Monday, so there is nothing else to do.')}
           </table>
@@ -377,7 +378,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, stage, detail
     : (formatCurrency(license.amount) || 'Not on file');
 
   const content = stageContent(resolvedStage, application, renewalDateText);
-  const subject = `${content.subjectPrefix}: ${application} ${content.subjectTail}`;
+  const subject = content.subject || `${content.subjectPrefix}: ${application} ${content.subjectTail}`;
 
   const plainText = [
     greeting,
