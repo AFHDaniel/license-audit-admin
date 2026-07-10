@@ -57,7 +57,7 @@ function formatRenewalDate(value) {
   if (!value) return 'Date not set';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
+  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 // Best-effort billing cadence from the free-text Monday "Length / Term" value.
