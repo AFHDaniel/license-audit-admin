@@ -156,7 +156,7 @@ function stageContent(stage, application, renewalDateText) {
       return {
         subjectPrefix: 'Heads-up',
         subjectTail: 'renews in about 90 days',
-        message: `${application} is set to renew on ${renewalDateText} - about 90 days out. Nothing urgent yet, but this is the ideal window to get ahead of it. If you're planning to keep ${application}, now is the best time to negotiate pricing: vendors are far more flexible before a deadline is on top of them.`,
+        message: `Our records show ${application} is set to renew on ${renewalDateText} - about 90 days out. Nothing urgent yet, but this is the ideal window to get ahead of it. If you're planning to keep ${application}, now is the best time to negotiate pricing: vendors are far more flexible before a deadline is on top of them.`,
         listHeading: 'A good time to:',
         listItems: [
           'Confirm the team still actively uses this tool.',
@@ -168,7 +168,7 @@ function stageContent(stage, application, renewalDateText) {
       return {
         subjectPrefix: 'Renewal in 2 months',
         subjectTail: 'a good time to review pricing',
-        message: `${application} renews on ${renewalDateText} - roughly two months away. If you haven't already started the conversation with the vendor, now is the time to reach out and negotiate pricing before the renewal locks in.`,
+        message: `Our records show ${application} renews on ${renewalDateText} - roughly two months away. If you haven't already started the conversation with the vendor, now is the time to reach out and negotiate pricing before the renewal locks in.`,
         listHeading: 'Worth checking before it renews:',
         listItems: [
           "Are you still using everything you're paying for - seats, tier, add-ons?",
@@ -179,13 +179,12 @@ function stageContent(stage, application, renewalDateText) {
     case '30-day':
       return {
         subjectPrefix: 'Action needed',
-        subjectTail: 'renews in about 30 days',
-        message: `${application} renews in about 30 days, on ${renewalDateText}. This is the point to lock things in - connect with your vendor rep to confirm pricing and terms for the upcoming period.`,
-        listHeading: 'Please:',
+        subjectTail: 'renews in 30 days',
+        message: `Our records show ${application} renews in 30 days, on ${renewalDateText}. Connect with your vendor contact to confirm pricing and terms for the upcoming period.`,
+        listHeading: '',
         listItems: [
-          'If you have already handled the renewal - great. Update the renewal date and cost in the tracker so our records are current.',
-          'If the pricing changed, review and update the cost so spend reporting stays accurate.',
-          'If you are considering a change or cancellation, act now - some agreements require advance notice.',
+          'If you have already handled the renewal, please update the renewal date and pricing/cost in the tracker.',
+          'If you are considering a change or cancellation, act now. Many agreements require advance notice.',
         ],
       };
     case 'expiration':
@@ -282,7 +281,7 @@ function checklistBlock(heading, items, accent) {
       })}">${escapeHtml(item)}</td>
     </tr>`).join('');
 
-  return `
+  const headingHtml = heading ? `
     <p style="${styleAttr({
       margin: '0 0 8px 0',
       fontFamily: FONT_STACK,
@@ -291,7 +290,9 @@ function checklistBlock(heading, items, accent) {
       letterSpacing: '0.06em',
       textTransform: 'uppercase',
       color: BRAND.inkSoft,
-    })}">${escapeHtml(heading)}</p>
+    })}">${escapeHtml(heading)}</p>` : '';
+
+  return `${headingHtml}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${styleAttr({ marginBottom: '22px' })}">
       ${rows}
     </table>`;
@@ -385,7 +386,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, stage, detail
     '',
     content.message,
     '',
-    `${content.listHeading}`,
+    content.listHeading ? `${content.listHeading}` : null,
     ...content.listItems.map((item) => `  - ${item}`),
     '',
     'On file:',
