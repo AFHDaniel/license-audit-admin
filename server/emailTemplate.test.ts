@@ -40,8 +40,8 @@ test('90-day reminder is a friendly heads-up that mentions negotiating', () => {
   assert.match(result.subject, /^Heads-up: Slack Business\+/);
   assert.match(result.subject, /90 days/);
   assert.match(result.html, /RENEWS IN 90 DAYS/);
-  assert.match(result.html, /A good time to:/);
-  assert.match(result.plainText, /negotiate pricing/);
+  assert.match(result.html, /This is a good time to:/);
+  assert.match(result.plainText, /negotiating better pricing/);
 });
 
 test('60-day reminder nudges toward a pricing review', () => {
@@ -53,7 +53,7 @@ test('60-day reminder nudges toward a pricing review', () => {
 
 test('30-day reminder is action-oriented', () => {
   const result = renderRenewalReminder({ license: sampleLicense, daysUntilRenewal: 20 });
-  assert.match(result.subject, /^\[ACTION REQUIRED\] Slack Business\+ renews in 30 days/);
+  assert.match(result.subject, /^\[ACTION REQUIRED\] Slack Business\+ renews in 20 days/);
   assert.match(result.html, /RENEWS IN 20 DAYS &middot; ACTION NEEDED|RENEWS IN 20 DAYS . ACTION NEEDED/);
   assert.match(result.plainText, /already handled the renewal/);
 });

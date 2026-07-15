@@ -133,7 +133,7 @@ function stageBannerLabel(stage, daysUntilRenewal) {
   const abs = Math.abs(days);
   switch (stage) {
     case '90-day':
-      return Number.isFinite(days) ? `RENEWS IN ${days} DAYS` : 'RENEWS IN ABOUT 90 DAYS';
+      return Number.isFinite(days) ? `RENEWS IN ${days} DAYS` : 'RENEWS IN 90 DAYS';
     case '60-day':
       return Number.isFinite(days) ? `RENEWS IN ${days} DAYS` : 'RENEWS IN ABOUT 2 MONTHS';
     case '30-day':
@@ -150,14 +150,19 @@ function stageBannerLabel(stage, daysUntilRenewal) {
 
 // Per-stage copy: the headline subject prefix, the lead paragraph, and a
 // short "what to do" checklist. Wording comes straight from the May 15 review.
-function stageContent(stage, application, renewalDateText) {
+function stageContent(stage, application, renewalDateText, daysUntilRenewal) {
+  // The 30-day stage covers every send inside the final month (30, 7, ... days
+  // out), so its subject and lead line use the live day count.
+  const daysOut = Number.isFinite(Number(daysUntilRenewal)) && Number(daysUntilRenewal) > 0
+    ? Number(daysUntilRenewal)
+    : 30;
   switch (stage) {
     case '90-day':
       return {
         subjectPrefix: 'Heads-up',
-        subjectTail: 'renews in about 90 days',
-        message: `Our records show ${application} is set to renew on ${renewalDateText} - about 90 days out. Nothing urgent yet, but this is the ideal window to get ahead of it. If you're planning to keep ${application}, now is the best time to negotiate pricing: vendors are far more flexible before a deadline is on top of them.`,
-        listHeading: 'A good time to:',
+        subjectTail: 'renews in 90 days',
+        message: `Our records show ${application} is set to renew on ${renewalDateText}. This is the ideal window to start the renewal process, specifically negotiating better pricing.`,
+        listHeading: 'This is a good time to:',
         listItems: [
           'Confirm the team still actively uses this tool.',
           'Reach out to the vendor about pricing for the upcoming term.',
@@ -179,10 +184,10 @@ function stageContent(stage, application, renewalDateText) {
       };
     case '30-day':
       return {
-        subject: `[ACTION REQUIRED] ${application} renews in 30 days`,
+        subject: `[ACTION REQUIRED] ${application} renews in ${daysOut} days`,
         subjectPrefix: 'Action needed',
-        subjectTail: 'renews in 30 days',
-        message: `Our records show ${application} renews in 30 days, on ${renewalDateText}. Connect with your vendor contact to confirm pricing and terms for the upcoming period.`,
+        subjectTail: `renews in ${daysOut} days`,
+        message: `Our records show ${application} renews in ${daysOut} days, on ${renewalDateText}. Connect with your vendor contact to confirm pricing and terms for the upcoming period.`,
         listHeading: '',
         listItems: [
           'If you have already handled the renewal, please update the renewal date and pricing/cost in the tracker.',
@@ -407,7 +412,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, stage, detail
     ? `${monthlyText}/mo · ${annualText}/yr`
     : (formatCurrency(license.amount) || 'Not on file');
 
-  const content = stageContent(resolvedStage, application, renewalDateText);
+  const content = stageContent(resolvedStage, application, renewalDateText, daysUntilRenewal);
   const showHelp = resolvedStage === '90-day' || resolvedStage === '60-day' || resolvedStage === '30-day';
   const subject = content.subject || `${content.subjectPrefix}: ${application} ${content.subjectTail}`;
 
@@ -429,7 +434,7 @@ export function renderRenewalReminder({ license, daysUntilRenewal, stage, detail
     seats ? `  Seats: ${seats}` : null,
     '',
     'Update it in under a minute:',
-    '  1. Open the record in the Application Tracker (link below).',
+    '  1. Open the record in the Application Tracker (see button below).',
     '  2. Update the renewal date, term, and cost.',
     '  3. Hit Save - it writes straight back to Monday.',
     url,
